@@ -13,10 +13,14 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
+import { useAuth } from '../context/AuthContext';
+import { ApiError } from '../services/api';
+import { SHOPS } from '../constants/catalog';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<NavigationProp<'Register'>>();
   const styles = createStyles(COLORS);
+  const { register } = useAuth();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -48,11 +52,21 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const firstName = fullName.split(' ')[0] || fullName;
-      navigation.navigate('Home', { userName: firstName });
+      const created = await register({
+        fullName,
+        email,
+        phone: phone || undefined,
+        preferredShop,
+        password,
+        confirmPassword,
+      });
+      navigation.navigate('Home', { userName: created.firstName });
     } catch (err) {
-      setError('Ocurrió un error al crear la cuenta. Intenta de nuevo.');
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Ocurrió un error al crear la cuenta. Intenta de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -147,7 +161,7 @@ export default function RegisterScreen() {
             <View style={styles.field}>
               <Text style={styles.label}>Barbería preferida</Text>
               <View style={styles.shopSelector}>
-                {['Barber Chamos', 'Barberia Prado Centro', 'SurBarber'].map((shop) => (
+                {SHOPS.map((shop) => (
                   <Pressable
                     key={shop}
                     style={[

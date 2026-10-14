@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -8,21 +8,49 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { COLORS, Colors } from '../styles/colors';
-import { NavigationProp, ScreenRouteProp } from '../types/navigation';
+import { NavigationProp } from '../types/navigation';
+import { useAuth } from '../context/AuthContext';
+import type { AppointmentsSummary } from '../types/api';
+import { getAppointments } from '../services/appointments.api';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp<'Profile'>>();
-  const route = useRoute<ScreenRouteProp<'Profile'>>();
   const styles = createStyles(COLORS);
+  const { user, isGuest, logout } = useAuth();
 
-  const handleLogout = () => {
+  const [summary, setSummary] = useState<AppointmentsSummary | null>(null);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (isGuest || !user) return;
+      let active = true;
+      void (async () => {
+        try {
+          const res = await getAppointments({ limit: 1 });
+          if (active) setSummary(res.summary);
+        } catch {
+          // Se conservan los valores anteriores.
+        }
+      })();
+      return () => {
+        active = false;
+      };
+    }, [isGuest, user]),
+  );
+
+  const handleLogout = async () => {
+    await logout();
     navigation.reset({
       index: 0,
       routes: [{ name: 'Login' }],
     });
   };
+
+  const displayName = user?.fullName ?? 'Invitado';
+  const displayEmail = user?.email ?? 'Sin sesión iniciada';
+  const preferredShop = user?.preferredShop ?? '—';
 
   return (
     <View style={styles.root}>
@@ -40,10 +68,10 @@ export default function ProfileScreen() {
 
         <View style={styles.profileHeaderContent}>
           <View style={styles.avatarLarge}>
-            <Text style={styles.avatarText}>U</Text>
+            <Text style={styles.avatarText}>{displayName.charAt(0).toUpperCase()}</Text>
           </View>
-          <Text style={styles.userName}>Usuario</Text>
-          <Text style={styles.userEmail}>[tucorreo@ejemplo.com]</Text>
+          <Text style={styles.userName}>{displayName}</Text>
+          <Text style={styles.userEmail}>{displayEmail}</Text>
 
           <View style={styles.membershipBadge}>
             <Text style={styles.membershipText}>⭐ MIEMBRO CLUB TONSORIUM</Text>
@@ -55,12 +83,12 @@ export default function ProfileScreen() {
         { }
         <View style={styles.statsContainer}>
           <View style={styles.statBox}>
-            <Text style={styles.statNumber}>12</Text>
+            <Text style={styles.statNumber}>{summary?.completedCount ?? 0}</Text>
             <Text style={styles.statLabel}>Cortes hechos</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
-            <Text style={styles.statNumber}>340</Text>
+            <Text style={styles.statNumber}>{summary?.totalPoints ?? 0}</Text>
             <Text style={styles.statLabel}>Puntos Tonsorium</Text>
           </View>
           <View style={styles.statDivider} />
@@ -78,7 +106,7 @@ export default function ProfileScreen() {
             <Text style={styles.menuIcon}>💈</Text>
             <View style={styles.menuContent}>
               <Text style={styles.menuTitle}>Barbería Habitual</Text>
-              <Text style={styles.menuSub}>Barber Chamos · Av. Principal 123</Text>
+              <Text style={styles.menuSub}>{preferredShop}</Text>
             </View>
             <Text style={styles.menuArrow}>›</Text>
           </Pressable>
@@ -143,7 +171,7 @@ export default function ProfileScreen() {
         </View>
 
         { }
-        <Pressable style={styles.logoutBtn} onPress={handleLogout}>
+        <Pressable style={styles.logoutBtn} onPress={() => void handleLogout()}>
           <Text style={styles.logoutBtnText}>🚪 Cerrar sesión</Text>
         </Pressable>
       </ScrollView>

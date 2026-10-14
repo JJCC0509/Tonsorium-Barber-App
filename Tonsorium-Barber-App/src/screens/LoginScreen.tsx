@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -13,16 +13,13 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
-
-interface Credentials {
-  email: string;
-  password: string;
-  remember: boolean;
-}
+import { useAuth } from '../context/AuthContext';
+import { ApiError } from '../services/api';
 
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp<'Login'>>();
   const styles = createStyles(COLORS);
+  const { user, isGuest, loading: authLoading, login, loginAsGuest } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -30,6 +27,15 @@ export default function LoginScreen() {
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && (user || isGuest)) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home', params: { userName: user?.firstName ?? 'Invitado' } }],
+      });
+    }
+  }, [authLoading, user, isGuest, navigation]);
 
   const handleSubmit = async () => {
     setError('');
@@ -39,22 +45,23 @@ export default function LoginScreen() {
       return;
     }
 
-    const credentials: Credentials = { email, password, remember };
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      console.log('Iniciar sesión con:', credentials);
-      const nameFromEmail = email.split('@')[0];
-      const capitalizedName = nameFromEmail ? nameFromEmail.charAt(0).toUpperCase() + nameFromEmail.slice(1) : 'Usuario';
-      navigation.navigate('Home', { userName: capitalizedName });
+      const loggedUser = await login({ email, password, remember });
+      navigation.navigate('Home', { userName: loggedUser.firstName });
     } catch (err) {
-      setError('No pudimos iniciar tu sesión. Intenta de nuevo.');
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('No pudimos iniciar tu sesión. Intenta de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
   };
 
   const handleGuestLogin = () => {
+    loginAsGuest();
     navigation.navigate('Home', { userName: 'Invitado' });
   };
 
