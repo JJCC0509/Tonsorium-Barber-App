@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -8,28 +8,50 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp, ScreenRouteProp } from '../types/navigation';
-
-const FEATURED_SERVICES = [
-  { id: '1', title: 'Corte Premium', price: '$25000', time: '30 min', desc: 'Corte tradicional a tijera o máquina con acabado fino.' },
-  { id: '2', title: 'Barba Tradicional', price: '$18000', time: '25 min', desc: 'Afeitado o perfilado con toalla caliente y bálsamo.' },
-  { id: '3', title: 'Combo Especial', price: '$38000', time: '50 min', desc: 'Corte de cabello + arreglo completo de barba + lavado.' },
-  { id: '4', title: 'Cejas', price: '$7000', time: '5 min', desc: 'Corte de cejas con tijeras y cera.' },
-];
-
-const BARBERS = [
-  { id: 'b1', name: 'El Chamo', shop: 'Barber Chamos', rating: '4.9 ⭐', exp: '8 años exp.' },
-  { id: 'b2', name: 'Javier Silva', shop: 'Barberia Prado Centro', rating: '4.8 ⭐', exp: '5 años exp.' },
-  { id: 'b3', name: 'Diego Torres', shop: 'SurBarber', rating: '5.0 ⭐', exp: '10 años exp.' },
-];
+import { useAuth } from '../context/AuthContext';
+import { BARBERS, SERVICES } from '../constants/catalog';
+import type { AppointmentItem } from '../types/api';
+import { ApiError } from '../services/api';
+import { getAppointments } from '../services/appointments.api';
+import { formatDate, formatPrice, formatTime } from '../utils/format';
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp<'Home'>>();
   const route = useRoute<ScreenRouteProp<'Home'>>();
-  const userName = route.params?.userName || 'Usuario';
+  const { user, isGuest } = useAuth();
+  const userName = user?.firstName ?? (isGuest ? 'Invitado' : (route.params?.userName || 'Usuario'));
   const styles = createStyles(COLORS);
+
+  const [nextApt, setNextApt] = useState<AppointmentItem | null>(null);
+  const [nextLoading, setNextLoading] = useState(false);
+  const [nextError, setNextError] = useState('');
+
+  const loadNext = useCallback(async () => {
+    if (isGuest) return;
+    setNextLoading(true);
+    setNextError('');
+    try {
+      const res = await getAppointments({ filter: 'upcoming', limit: 1 });
+      setNextApt(res.items[0] ?? null);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setNextError(err.message);
+      } else {
+        setNextError('No pudimos cargar tu próxima cita.');
+      }
+    } finally {
+      setNextLoading(false);
+    }
+  }, [isGuest]);
+
+  useFocusEffect(
+    useCallback(() => {
+      void loadNext();
+    }, [loadNext]),
+  );
 
   return (
     <View style={styles.root}>
@@ -66,37 +88,78 @@ export default function HomeScreen() {
           </Pressable>
         </View>
 
-        <View style={styles.appointmentCard}>
-          <View style={styles.appointmentBadge}>
-            <Text style={styles.badgeText}>CONFIRMADA</Text>
-          </View>
-
-          <Text style={styles.appointmentShop}>Barber Chamos</Text>
-          <Text style={styles.appointmentService}>Combo (Corte + Barba)</Text>
-
-          <View style={styles.appointmentMetaRow}>
-            <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>Barbero</Text>
-              <Text style={styles.metaValue}>El Chamo</Text>
-            </View>
-
-            <View style={styles.metaDivider} />
-
-            <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>Fecha & Hora</Text>
-              <Text style={styles.metaValue}>Hoy, 4:30 PM</Text>
+        {isGuest ? (
+          <View style={styles.appointmentCard}>
+            <Text style={styles.appointmentService}>Explora como invitado</Text>
+            <Text style={styles.guestSub}>Inicia sesión para ver tu próxima cita y reservar turnos.</Text>
+            <View style={styles.cardActions}>
+              <Pressable
+                style={styles.btnSecondary}
+                onPress={() => navigation.navigate('Login')}
+              >
+                <Text style={styles.btnSecondaryText}>Iniciar sesión</Text>
+              </Pressable>
             </View>
           </View>
-
-          <View style={styles.cardActions}>
-            <Pressable
-              style={styles.btnSecondary}
-              onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}
-            >
-              <Text style={styles.btnSecondaryText}>Detalles / Cancelar</Text>
-            </Pressable>
+        ) : nextLoading ? (
+          <View style={styles.appointmentCard}>
+            <Text style={styles.stateText}>Cargando tu próxima cita...</Text>
           </View>
-        </View>
+        ) : nextError ? (
+          <View style={styles.appointmentCard}>
+            <Text style={styles.stateErrorText}>{nextError}</Text>
+            <View style={styles.cardActions}>
+              <Pressable style={styles.btnSecondary} onPress={() => void loadNext()}>
+                <Text style={styles.btnSecondaryText}>Reintentar</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : !nextApt ? (
+          <View style={styles.appointmentCard}>
+            <Text style={styles.appointmentService}>Sin próxima cita</Text>
+            <Text style={styles.guestSub}>Reserva tu turno para mantener tu estilo al día.</Text>
+            <View style={styles.cardActions}>
+              <Pressable
+                style={styles.btnSecondary}
+                onPress={() => navigation.navigate('Appointments', { initialTab: 'booking' })}
+              >
+                <Text style={styles.btnSecondaryText}>Reservar ahora</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.appointmentCard}>
+            <View style={styles.appointmentBadge}>
+              <Text style={styles.badgeText}>CONFIRMADA</Text>
+            </View>
+
+            <Text style={styles.appointmentShop}>{nextApt.shop}</Text>
+            <Text style={styles.appointmentService}>{nextApt.serviceName}</Text>
+
+            <View style={styles.appointmentMetaRow}>
+              <View style={styles.metaItem}>
+                <Text style={styles.metaLabel}>Barbero</Text>
+                <Text style={styles.metaValue}>{nextApt.barberName}</Text>
+              </View>
+
+              <View style={styles.metaDivider} />
+
+              <View style={styles.metaItem}>
+                <Text style={styles.metaLabel}>Fecha & Hora</Text>
+                <Text style={styles.metaValue}>{formatDate(nextApt.startAt)}, {formatTime(nextApt.startAt)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.cardActions}>
+              <Pressable
+                style={styles.btnSecondary}
+                onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}
+              >
+                <Text style={styles.btnSecondaryText}>Detalles / Cancelar</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
 
         { }
         <Pressable
@@ -153,7 +216,7 @@ export default function HomeScreen() {
               <View style={styles.ratingBadge}>
                 <Text style={styles.ratingText}>{barber.rating}</Text>
               </View>
-              <Text style={styles.barberExp}>{barber.exp}</Text>
+              <Text style={styles.barberExp}>{barber.experience}</Text>
             </Pressable>
           ))}
         </ScrollView>
@@ -164,19 +227,19 @@ export default function HomeScreen() {
         </View>
 
         <View style={styles.servicesGrid}>
-          {FEATURED_SERVICES.map((item) => (
+          {SERVICES.map((item) => (
             <Pressable
               key={item.id}
               style={styles.serviceCard}
-              onPress={() => navigation.navigate('Appointments', { initialTab: 'booking', selectedService: item.title })}
+              onPress={() => navigation.navigate('Appointments', { initialTab: 'booking', selectedService: item.name })}
             >
               <View style={styles.serviceHeader}>
-                <Text style={styles.serviceTitle}>{item.title}</Text>
-                <Text style={styles.servicePrice}>{item.price}</Text>
+                <Text style={styles.serviceTitle}>{item.name}</Text>
+                <Text style={styles.servicePrice}>{formatPrice(item.price)}</Text>
               </View>
-              <Text style={styles.serviceDesc}>{item.desc}</Text>
+              <Text style={styles.serviceDesc}>{item.description}</Text>
               <View style={styles.serviceFooter}>
-                <Text style={styles.serviceTime}>⏱ {item.time}</Text>
+                <Text style={styles.serviceTime}>⏱ {item.durationMinutes} min</Text>
                 <Text style={styles.serviceBookText}>Seleccionar →</Text>
               </View>
             </Pressable>
@@ -357,6 +420,19 @@ function createStyles(colors: Colors) {
       fontSize: 12.5,
       color: colors.textDark,
       fontWeight: '600',
+    },
+    stateText: {
+      fontSize: 13.5,
+      color: colors.textMuted,
+    },
+    stateErrorText: {
+      fontSize: 13.5,
+      color: colors.error,
+    },
+    guestSub: {
+      fontSize: 12.5,
+      color: colors.textMuted,
+      lineHeight: 17,
     },
 
     heroCta: {
