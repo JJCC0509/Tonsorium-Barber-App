@@ -149,7 +149,7 @@ https://tonsorium-api.onrender.com/api/v1
 
 Verificación: <https://tonsorium-api.onrender.com/api/v1/health> → `{"status":"ok","db":"ok","timestamp":"..."}`
 
-> Plan gratuito de Render: el servicio se suspende tras 15 minutos sin tráfico y la primera petición tarda ~50 s en despertarlo. La app muestra su estado de carga mientras tanto.
+> Plan gratuito de Render: el servicio se suspende tras 15 minutos sin tráfico y la primera petición tarda entre 20 y 50 s en despertarlo (medido: 24,12 s sobre `/health`). Ese tiempo supera el timeout de 15 s del cliente, así que la app muestra la pantalla de **Reintentar** en lugar de expulsar al usuario al Login; al pulsar el botón el servicio ya está despierto y la sesión continúa intacta.
 
 ### Despliegue reproducible (Render Blueprint)
 
