@@ -13,7 +13,7 @@ Backend propio del proyecto académico **Tonsorium Barber App**. Expone **5 ruta
 
 ## Requisitos
 
-- **Node.js 22** (mínimo 20; `engines` declara `>=22`)
+- **Node.js 22** (`engines` fija `22.x` para que el proveedor de hosting no elija una versión mayor con `tsc` incompatible)
 - **npm** 10+
 - Un proyecto de **Supabase** con el esquema aplicado y el seed cargado
 - (Opcional) **Supabase CLI** para aplicar migraciones con `supabase db push`
@@ -68,6 +68,7 @@ Las migraciones viven en `supabase/migrations/` y **ya están escritas**:
 
 - `001_init_schema.sql` — 5 tablas (`shops`, `barbers`, `services`, `users`, `appointments`), índice único parcial anti-doble-reserva, `updated_at` automático y **RLS habilitado sin políticas**.
 - `002_points_and_stats.sql` — trigger de puntos (25 por cita completada) y función `public.get_user_stats(uuid)`.
+- `003_service_role_grants.sql` — **imprescindible**: Supabase ya no concede privilegios automáticos a las tablas nuevas de `public`. Sin estos `GRANT` a `service_role`, la API responde `permission denied` aunque use la service_role key (`BYPASSRLS` omite el filtrado por filas, pero **no** los permisos).
 
 Aplicarlas (con Supabase CLI ya vinculado):
 
@@ -136,18 +137,40 @@ Formato de error uniforme:
 
 ---
 
-## Despliegue (Render / Railway)
+## Despliegue
 
-El backend debe ser accesible por Internet (o por la LAN) para que el APK funcione en un teléfono real.
+El backend debe ser accesible por Internet para que el APK funcione en un teléfono real.
 
-1. Sube el repositorio a GitHub (el `.env` está en `.gitignore` y **no** debe versionarse).
-2. Crea un **Web Service** apuntando a la carpeta `backend/`:
-   - **Build Command:** `npm install && npm run build`
-   - **Start Command:** `npm start`
-   - **Runtime / Node version:** 22
-3. Configura las variables de entorno en el panel del proveedor: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, `JWT_SECRET`, `ALLOWED_ORIGINS` (y opcionalmente `PORT`; Render/Railway lo inyectan automáticamente).
-4. Verifica desde el navegador del teléfono: `https://<host>/api/v1/health` → debe responder `{ "status": "ok", "db": "ok", ... }`.
-5. Repite un registro y un login contra la URL pública.
-6. Documenta la URL final: se usará como `EXPO_PUBLIC_API_URL` en la app (`https://<host>/api/v1`) y en `eas.json`.
+### URL pública actual
+
+```
+https://tonsorium-api.onrender.com/api/v1
+```
+
+Verificación: <https://tonsorium-api.onrender.com/api/v1/health> → `{"status":"ok","db":"ok","timestamp":"..."}`
+
+> Plan gratuito de Render: el servicio se suspende tras 15 minutos sin tráfico y la primera petición tarda ~50 s en despertarlo. La app muestra su estado de carga mientras tanto.
+
+### Despliegue reproducible (Render Blueprint)
+
+`render.yaml`, en la raíz del repositorio, describe el servicio completo:
+
+1. Crea una cuenta en <https://dashboard.render.com/register> (con GitHub).
+2. **New +** → **Blueprint** → elige el repositorio y la rama.
+3. Render pide los tres valores marcados con `sync: false` en el blueprint: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `JWT_SECRET`. Cópialos de `backend\.env`.
+4. **Apply** y esperar el build.
+
+### Despliegue manual (alternativa)
+
+Crea un **Web Service** apuntando a la carpeta `backend/`:
+
+- **Build Command:** `npm ci --include=dev && npm run build`
+- **Start Command:** `npm start`
+- **Runtime / Node version:** 22
+
+### Dos trampas reales encontradas en el despliegue
+
+1. **npm omite las devDependencies.** Si el servicio define `NODE_ENV=production`, `npm ci` no instala `typescript` ni `@types/node` y el build falla con `TS2688 Cannot find type definition file for 'node'`. Por eso el `buildCommand` lleva `--include=dev` **y** existe `backend/.npmrc` con `include=dev` (verificado: con `NODE_ENV=production`, `npm config get omit` pasa de `[dev]` a `[]`).
+2. **`engines.node` debe fijarse.** Con `>=22`, Render instaló Node 26 y su `tsc` rechazaba `moduleResolution: Node` con `TS5108 ... has been removed`. Fijar `"node": "22.x"` garantiza el `tsc 5.9.3` del `package-lock.json`.
 
 > **Nota de seguridad:** la `service_role` key se configura **solo** en `backend\.env` y en el panel del proveedor. Nunca en la app móvil, nunca en Git.
