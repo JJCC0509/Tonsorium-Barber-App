@@ -8,7 +8,9 @@ services:
     plan: free
     region: oregon
     rootDir: backend
-    buildCommand: npm ci && npm run build
+    # `--include=dev` es obligatorio: el servicio define NODE_ENV=production y
+    # npm omitiria typescript y @types/node, que el build necesita.
+    buildCommand: npm ci --include=dev && npm run build
     startCommand: npm start
     healthCheckPath: /api/v1/health
     envVars:
