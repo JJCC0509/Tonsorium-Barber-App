@@ -1,6 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { setAuthToken } from '../services/apiClient';
+import { ApiError, setAuthToken } from '../services/apiClient';
 import { login as loginRequest, register as registerRequest } from '../services/auth.service';
 import { fetchMe, updateMe } from '../services/profile.service';
 import type { MeResponse, RegisterInput, UpdateMeInput } from '../types/api';
@@ -8,7 +8,7 @@ import type { MeResponse, RegisterInput, UpdateMeInput } from '../types/api';
 /** El token solo se guarda si el usuario marco "Recordarme" (o al registrarse). */
 const TOKEN_KEY = 'tonsorium.session.token';
 
-export type AuthStatus = 'restoring' | 'signedOut' | 'signedIn';
+export type AuthStatus = 'restoring' | 'signedOut' | 'signedIn' | 'restoreFailed';
 
 interface AuthContextValue {
   status: AuthStatus;
@@ -17,6 +17,7 @@ interface AuthContextValue {
   signUp: (input: RegisterInput) => Promise<void>;
   signOut: () => Promise<void>;
   refreshMe: () => Promise<void>;
+  retryRestore: () => Promise<void>;
   updateProfile: (input: UpdateMeInput) => Promise<void>;
 }
 
@@ -35,37 +36,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [status, setStatus] = useState<AuthStatus>('restoring');
   const [me, setMe] = useState<MeResponse | null>(null);
 
-  // Al arrancar: rehidratar el token y validarlo contra GET /me.
-  useEffect(() => {
-    let active = true;
+  /**
+   * Rehidrata el token guardado y lo valida contra `GET /me`.
+   *
+   * Solo un 401 prueba que la sesion dejo de ser valida, y unicamente en ese
+   * caso se descarta el token. Un fallo de red (sin conexion, o el backend
+   * dormido en el plan gratuito de Render) NO debe cerrar la sesion: se pasa a
+   * `restoreFailed` y el usuario decide si reintentar.
+   */
+  const restoreSession = useCallback(async () => {
+    setStatus('restoring');
 
-    const restore = async () => {
-      try {
-        const stored = await SecureStore.getItemAsync(TOKEN_KEY);
-        if (stored) {
-          setAuthToken(stored);
-          const result = await fetchMe();
-          if (active) {
-            setMe(result);
-            setStatus('signedIn');
-          }
-          return;
-        }
-      } catch {
+    let stored: string | null = null;
+    try {
+      stored = await SecureStore.getItemAsync(TOKEN_KEY);
+    } catch {
+      stored = null;
+    }
+
+    if (!stored) {
+      setAuthToken(null);
+      setMe(null);
+      setStatus('signedOut');
+      return;
+    }
+
+    setAuthToken(stored);
+    try {
+      const result = await fetchMe();
+      setMe(result);
+      setStatus('signedIn');
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
         await clearStoredToken();
-      }
-
-      if (active) {
         setMe(null);
         setStatus('signedOut');
+        return;
       }
-    };
-
-    void restore();
-    return () => {
-      active = false;
-    };
+      setStatus('restoreFailed');
+    }
   }, []);
+
+  useEffect(() => {
+    void restoreSession();
+  }, [restoreSession]);
 
   const persistToken = useCallback(async (token: string, remember: boolean) => {
     setAuthToken(token);
@@ -131,8 +145,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo<AuthContextValue>(
-    () => ({ status, me, signIn, signUp, signOut, refreshMe, updateProfile }),
-    [status, me, signIn, signUp, signOut, refreshMe, updateProfile],
+    () => ({ status, me, signIn, signUp, signOut, refreshMe, retryRestore: restoreSession, updateProfile }),
+    [status, me, signIn, signUp, signOut, refreshMe, restoreSession, updateProfile],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

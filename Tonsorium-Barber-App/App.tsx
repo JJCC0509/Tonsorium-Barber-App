@@ -1,10 +1,11 @@
 import React from 'react';
-import { ActivityIndicator, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 
 import { AuthProvider, useAuth } from './src/context/AuthContext';
+import { ErrorState } from './src/components/StateViews';
 import { COLORS } from './src/styles/colors';
 import LoginScreen from './src/screens/LoginScreen';
 import RegisterScreen from './src/screens/RegisterScreen';
@@ -26,11 +27,44 @@ function BootScreen() {
   );
 }
 
+/**
+ * Hay sesion guardada pero el servidor no respondio (sin conexion o backend
+ * dormido). No se cierra la sesion: se le ofrece reintentar o entrar con otra
+ * cuenta.
+ */
+function RestoreFailedScreen() {
+  const { retryRestore, signOut } = useAuth();
+
+  return (
+    <View style={styles.restoreFailed}>
+      <StatusBar style="dark" />
+      <ErrorState
+        message="No pudimos conectar con el servidor para restaurar tu sesión. Revisa tu conexión a internet e intenta de nuevo."
+        onRetry={() => {
+          void retryRestore();
+        }}
+      />
+      <Pressable
+        style={styles.restoreFailedLink}
+        onPress={() => {
+          void signOut();
+        }}
+      >
+        <Text style={styles.restoreFailedLinkText}>Entrar con otra cuenta</Text>
+      </Pressable>
+    </View>
+  );
+}
+
 function RootNavigator() {
   const { status } = useAuth();
 
   if (status === 'restoring') {
     return <BootScreen />;
+  }
+
+  if (status === 'restoreFailed') {
+    return <RestoreFailedScreen />;
   }
 
   return (
@@ -68,5 +102,19 @@ const styles = StyleSheet.create({
     backgroundColor: COLORS.primary,
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  restoreFailed: {
+    flex: 1,
+    backgroundColor: COLORS.background,
+  },
+  restoreFailedLink: {
+    alignItems: 'center',
+    paddingBottom: 40,
+  },
+  restoreFailedLinkText: {
+    fontSize: 13.5,
+    fontWeight: '700',
+    color: COLORS.textGreen,
+    textDecorationLine: 'underline',
   },
 });

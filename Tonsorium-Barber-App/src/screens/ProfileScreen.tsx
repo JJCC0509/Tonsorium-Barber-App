@@ -1,6 +1,6 @@
 import { StatusBar } from 'expo-status-bar';
 import Constants from 'expo-constants';
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   Alert,
   Platform,
@@ -19,8 +19,16 @@ import { NavigationProp } from '../types/navigation';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp<'Profile'>>();
-  const { me, signOut, updateProfile } = useAuth();
+  const { me, signOut, refreshMe, updateProfile } = useAuth();
   const styles = createStyles(COLORS);
+
+  // Los puntos y los cortes los calcula la base de datos: se vuelven a pedir
+  // al entrar al Perfil para no mostrar cifras desactualizadas.
+  useEffect(() => {
+    void refreshMe().catch(() => {
+      // Si falla, se conservan los datos que ya estaban en memoria.
+    });
+  }, [refreshMe]);
 
   if (!me) {
     return (
