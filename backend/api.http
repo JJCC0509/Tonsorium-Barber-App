@@ -1,0 +1,175 @@
+# api.http — Colección de pruebas del backend Tonsorium
+# Compatible con la extensión REST Client de VS Code (o importable en Postman/Insomnia).
+#
+# Orden recomendado: 1 -> 9 y luego los casos de error.
+# Tras el login o el registro, copia el valor de "token" en la variable @token
+# y los ids devueltos por GET /catalog en @shopId, @barberId y @serviceId.
+
+@baseUrl = http://localhost:4000/api/v1
+@token = PEGA_AQUI_EL_JWT
+@shopId = PEGA_AQUI_UN_SHOP_ID
+@barberId = PEGA_AQUI_UN_BARBER_ID
+@serviceId = PEGA_AQUI_UN_SERVICE_ID
+@appointmentId = PEGA_AQUI_UN_APPOINTMENT_ID
+
+### 1) POST /auth/register — caso feliz (201)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "full_name": "Carlos Mendoza",
+  "email": "carlos.nuevo@tonsorium.test",
+  "password": "Tonsorium2026*",
+  "phone": "+57 320 6107465"
+}
+
+### 1b) POST /auth/register — ERROR 409 EMAIL_TAKEN
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "full_name": "Carlos Mendoza",
+  "email": "carlos@tonsorium.test",
+  "password": "Tonsorium2026*"
+}
+
+### 1c) POST /auth/register — ERROR 400 VALIDATION_ERROR (contraseña corta y sin número)
+POST {{baseUrl}}/auth/register
+Content-Type: application/json
+
+{
+  "full_name": "Ca",
+  "email": "correo-invalido",
+  "password": "abc"
+}
+
+### 2) POST /auth/login — caso feliz (200)
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "carlos@tonsorium.test",
+  "password": "Tonsorium2026*"
+}
+
+### 2b) POST /auth/login — ERROR 401 INVALID_CREDENTIALS
+POST {{baseUrl}}/auth/login
+Content-Type: application/json
+
+{
+  "email": "carlos@tonsorium.test",
+  "password": "ContraseñaEquivocada1"
+}
+
+### 3) GET /me — caso feliz (200)
+GET {{baseUrl}}/me
+Authorization: Bearer {{token}}
+
+### 3b) GET /me — ERROR 401 UNAUTHORIZED (sin token)
+GET {{baseUrl}}/me
+
+### 4) PUT /me — caso feliz (200)
+PUT {{baseUrl}}/me
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "full_name": "Carlos M.",
+  "phone": "+57 300 0000000",
+  "preferred_shop_id": "{{shopId}}",
+  "favorite_style": "Fade Medio + Barba Perfilada",
+  "notifications_enabled": false
+}
+
+### 4b) PUT /me — ERROR 400 VALIDATION_ERROR (cuerpo vacío)
+PUT {{baseUrl}}/me
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{}
+
+### 4c) PUT /me — ERROR 404 NOT_FOUND (barbería inexistente)
+PUT {{baseUrl}}/me
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "preferred_shop_id": "00000000-0000-0000-0000-000000000000"
+}
+
+### 5) GET /catalog — caso feliz (200, sin caché)
+GET {{baseUrl}}/catalog
+Cache-Control: no-store
+
+### 5b) GET /catalog — con filtros opcionales
+GET {{baseUrl}}/catalog?shop_id={{shopId}}&service_id={{serviceId}}
+
+### 6) GET /appointments?status=upcoming — caso feliz (200)
+GET {{baseUrl}}/appointments?status=upcoming
+Authorization: Bearer {{token}}
+
+### 6b) GET /appointments?status=history — caso feliz (200)
+GET {{baseUrl}}/appointments?status=history
+Authorization: Bearer {{token}}
+
+### 6c) GET /appointments — ERROR 401 UNAUTHORIZED (sin token)
+GET {{baseUrl}}/appointments?status=upcoming
+
+### 7) POST /appointments — caso feliz (201)
+POST {{baseUrl}}/appointments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "service_id": "{{serviceId}}",
+  "barber_id": "{{barberId}}",
+  "scheduled_at": "2027-01-15T16:30:00-05:00"
+}
+
+### 7b) POST /appointments — ERROR 400 INVALID_SCHEDULE (fecha en el pasado)
+POST {{baseUrl}}/appointments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "service_id": "{{serviceId}}",
+  "barber_id": "{{barberId}}",
+  "scheduled_at": "2020-01-15T16:30:00-05:00"
+}
+
+### 7c) POST /appointments — ERROR 409 SLOT_TAKEN (repetir exactamente el mismo body que en 7)
+POST {{baseUrl}}/appointments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "service_id": "{{serviceId}}",
+  "barber_id": "{{barberId}}",
+  "scheduled_at": "2027-01-15T16:30:00-05:00"
+}
+
+### 7d) POST /appointments — ERROR 404 NOT_FOUND (barbero/servicio inexistente)
+POST {{baseUrl}}/appointments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{
+  "service_id": "00000000-0000-0000-0000-000000000000",
+  "barber_id": "00000000-0000-0000-0000-000000000000",
+  "scheduled_at": "2027-01-15T16:30:00-05:00"
+}
+
+### 8) PATCH /appointments/:id/cancel — caso feliz (200)
+PATCH {{baseUrl}}/appointments/{{appointmentId}}/cancel
+Authorization: Bearer {{token}}
+
+### 8b) PATCH /appointments/:id/cancel — ERROR 409 ALREADY_CANCELLED (ejecutar dos veces)
+PATCH {{baseUrl}}/appointments/{{appointmentId}}/cancel
+Authorization: Bearer {{token}}
+
+### 8c) PATCH /appointments/:id/cancel — ERROR 404 NOT_FOUND (id inexistente o de otro usuario)
+PATCH {{baseUrl}}/appointments/00000000-0000-0000-0000-000000000000/cancel
+Authorization: Bearer {{token}}
+
+### 9) GET /health — caso feliz (200)
+GET {{baseUrl}}/health
