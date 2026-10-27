@@ -1,6 +1,8 @@
 import { StatusBar } from 'expo-status-bar';
+import Constants from 'expo-constants';
 import React from 'react';
 import {
+  Alert,
   Platform,
   Pressable,
   ScrollView,
@@ -8,20 +10,51 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
+import { LoadingState } from '../components/StateViews';
+import { useAuth } from '../context/AuthContext';
+import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
-import { NavigationProp, ScreenRouteProp } from '../types/navigation';
+import { NavigationProp } from '../types/navigation';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp<'Profile'>>();
-  const route = useRoute<ScreenRouteProp<'Profile'>>();
+  const { me, signOut, updateProfile } = useAuth();
   const styles = createStyles(COLORS);
 
+  if (!me) {
+    return (
+      <View style={styles.root}>
+        <StatusBar style="light" />
+        <LoadingState />
+      </View>
+    );
+  }
+
+  const { user, stats, preferred_shop } = me;
+  const initial = user.full_name.trim().charAt(0).toUpperCase() || '?';
+  const shopSubtitle = preferred_shop
+    ? preferred_shop.name + (preferred_shop.address ? ` · ${preferred_shop.address}` : '')
+    : 'Sin barbería preferida';
+  const version = Constants.expoConfig?.version ?? '1.0.0';
+
   const handleLogout = () => {
-    navigation.reset({
-      index: 0,
-      routes: [{ name: 'Login' }],
-    });
+    void signOut();
+  };
+
+  const handleToggleNotifications = async () => {
+    try {
+      await updateProfile({ notifications_enabled: !user.notifications_enabled });
+    } catch (err) {
+      Alert.alert('No se pudo actualizar', toErrorMessage(err));
+    }
+  };
+
+  const handleAbout = () => {
+    Alert.alert(
+      'Sobre Tonsorium App',
+      `Versión ${version} · Proyecto académico Club Tonsorium.`,
+    );
   };
 
   return (
@@ -40,10 +73,10 @@ export default function ProfileScreen() {
 
         <View style={styles.profileHeaderContent}>
           <View style={styles.avatarLarge}>
-            <Text style={styles.avatarText}>U</Text>
+            <Text style={styles.avatarText}>{initial}</Text>
           </View>
-          <Text style={styles.userName}>Usuario</Text>
-          <Text style={styles.userEmail}>[tucorreo@ejemplo.com]</Text>
+          <Text style={styles.userName}>{user.full_name}</Text>
+          <Text style={styles.userEmail}>{user.email}</Text>
 
           <View style={styles.membershipBadge}>
             <Text style={styles.membershipText}>⭐ MIEMBRO CLUB TONSORIUM</Text>
@@ -55,17 +88,17 @@ export default function ProfileScreen() {
         { }
         <View style={styles.statsContainer}>
           <View style={styles.statBox}>
-            <Text style={styles.statNumber}>12</Text>
+            <Text style={styles.statNumber}>{stats.cuts_done}</Text>
             <Text style={styles.statLabel}>Cortes hechos</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
-            <Text style={styles.statNumber}>340</Text>
+            <Text style={styles.statNumber}>{stats.points}</Text>
             <Text style={styles.statLabel}>Puntos Tonsorium</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statBox}>
-            <Text style={styles.statNumber}>4.9</Text>
+            <Text style={styles.statNumber}>{stats.rating.toFixed(1)}</Text>
             <Text style={styles.statLabel}>Calificación</Text>
           </View>
         </View>
@@ -74,22 +107,22 @@ export default function ProfileScreen() {
         <Text style={styles.sectionTitle}>Mi Cuenta & Preferencias</Text>
 
         <View style={styles.menuCard}>
-          <Pressable style={styles.menuItem}>
+          <Pressable style={styles.menuItem} onPress={() => navigation.navigate('EditProfile')}>
             <Text style={styles.menuIcon}>💈</Text>
             <View style={styles.menuContent}>
               <Text style={styles.menuTitle}>Barbería Habitual</Text>
-              <Text style={styles.menuSub}>Barber Chamos · Av. Principal 123</Text>
+              <Text style={styles.menuSub}>{shopSubtitle}</Text>
             </View>
             <Text style={styles.menuArrow}>›</Text>
           </Pressable>
 
           <View style={styles.menuDivider} />
 
-          <Pressable style={styles.menuItem}>
+          <Pressable style={styles.menuItem} onPress={() => navigation.navigate('EditProfile')}>
             <Text style={styles.menuIcon}>✂️</Text>
             <View style={styles.menuContent}>
               <Text style={styles.menuTitle}>Estilo Favorito</Text>
-              <Text style={styles.menuSub}>Fade Medio + Barba Perfilada</Text>
+              <Text style={styles.menuSub}>{user.favorite_style ?? 'Sin definir'}</Text>
             </View>
             <Text style={styles.menuArrow}>›</Text>
           </Pressable>
@@ -110,11 +143,13 @@ export default function ProfileScreen() {
 
           <View style={styles.menuDivider} />
 
-          <Pressable style={styles.menuItem}>
+          <Pressable style={styles.menuItem} onPress={handleToggleNotifications}>
             <Text style={styles.menuIcon}>🔔</Text>
             <View style={styles.menuContent}>
               <Text style={styles.menuTitle}>Recordatorios & Notificaciones</Text>
-              <Text style={styles.menuSub}>Alertas de turnos disponibles</Text>
+              <Text style={styles.menuSub}>
+                {user.notifications_enabled ? 'Activadas' : 'Desactivadas'}
+              </Text>
             </View>
             <Text style={styles.menuArrow}>›</Text>
           </Pressable>
@@ -123,22 +158,13 @@ export default function ProfileScreen() {
         { }
         <Text style={styles.sectionTitle}>Información</Text>
         <View style={styles.menuCard}>
-          <Pressable style={styles.menuItem}>
+          <Pressable style={styles.menuItem} onPress={handleAbout}>
             <Text style={styles.menuIcon}>ℹ️</Text>
             <View style={styles.menuContent}>
               <Text style={styles.menuTitle}>Sobre Tonsorium App</Text>
-              <Text style={styles.menuSub}>Versión 1.0.0 (MVP)</Text>
+              <Text style={styles.menuSub}>Versión {version}</Text>
             </View>
-          </Pressable>
-
-          <View style={styles.menuDivider} />
-
-          <Pressable style={styles.menuItem}>
-            <Text style={styles.menuIcon}>🛡️</Text>
-            <View style={styles.menuContent}>
-              <Text style={styles.menuTitle}>Términos y Privacidad</Text>
-              <Text style={styles.menuSub}>Políticas de la plataforma</Text>
-            </View>
+            <Text style={styles.menuArrow}>›</Text>
           </Pressable>
         </View>
 

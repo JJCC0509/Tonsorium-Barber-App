@@ -8,34 +8,59 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useNavigation } from '@react-navigation/native';
 import { COLORS, Colors } from '../styles/colors';
-import { NavigationProp, ScreenRouteProp } from '../types/navigation';
-
-const FEATURED_SERVICES = [
-  { id: '1', title: 'Corte Premium', price: '$25000', time: '30 min', desc: 'Corte tradicional a tijera o máquina con acabado fino.' },
-  { id: '2', title: 'Barba Tradicional', price: '$18000', time: '25 min', desc: 'Afeitado o perfilado con toalla caliente y bálsamo.' },
-  { id: '3', title: 'Combo Especial', price: '$38000', time: '50 min', desc: 'Corte de cabello + arreglo completo de barba + lavado.' },
-  { id: '4', title: 'Cejas', price: '$7000', time: '5 min', desc: 'Corte de cejas con tijeras y cera.' },
-];
-
-const BARBERS = [
-  { id: 'b1', name: 'El Chamo', shop: 'Barber Chamos', rating: '4.9 ⭐', exp: '8 años exp.' },
-  { id: 'b2', name: 'Javier Silva', shop: 'Barberia Prado Centro', rating: '4.8 ⭐', exp: '5 años exp.' },
-  { id: 'b3', name: 'Diego Torres', shop: 'SurBarber', rating: '5.0 ⭐', exp: '10 años exp.' },
-];
+import { NavigationProp } from '../types/navigation';
+import { useAuth } from '../context/AuthContext';
+import { useCatalog } from '../hooks/useCatalog';
+import { useAppointments } from '../hooks/useAppointments';
+import { EmptyState, ErrorState, LoadingState } from '../components/StateViews';
+import {
+  formatDate,
+  formatDuration,
+  formatPrice,
+  formatTime,
+  statusLabel,
+} from '../utils/format';
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp<'Home'>>();
-  const route = useRoute<ScreenRouteProp<'Home'>>();
-  const userName = route.params?.userName || 'Usuario';
+  const { me } = useAuth();
+  const {
+    barbers,
+    services,
+    loading: catalogLoading,
+    error: catalogError,
+    refetch: refetchCatalog,
+  } = useCatalog();
+  const {
+    appointments,
+    loading: appointmentsLoading,
+    error: appointmentsError,
+    refetch: refetchAppointments,
+  } = useAppointments('upcoming');
   const styles = createStyles(COLORS);
+
+  const fullName = me?.user.full_name.trim() ?? '';
+  const firstName = fullName.length > 0 ? fullName.split(' ')[0] : 'Usuario';
+  const avatarInitial = firstName.charAt(0).toUpperCase();
+
+  const nextAppointment = appointments[0] ?? null;
+  const featuredBarbers = barbers.slice(0, 3);
+  const featuredServices = services.slice(0, 4);
+
+  const loading = catalogLoading || appointmentsLoading;
+  const error = catalogError ?? appointmentsError;
+
+  const handleRetry = () => {
+    void refetchCatalog();
+    void refetchAppointments();
+  };
 
   return (
     <View style={styles.root}>
       <StatusBar style="light" />
 
-      { }
       <View style={styles.header}>
         <View style={styles.brandRow}>
           <View style={styles.markDot} />
@@ -45,144 +70,169 @@ export default function HomeScreen() {
         <View style={styles.userRow}>
           <View>
             <Text style={styles.welcomeSubtitle}>Bienvenido de nuevo,</Text>
-            <Text style={styles.userName}>¡Hola, {userName}! 👋</Text>
+            <Text style={styles.userName}>¡Hola, {firstName}! 👋</Text>
           </View>
           <Pressable
             style={styles.profileAvatar}
             onPress={() => navigation.navigate('Profile')}
           >
-            <Text style={styles.avatarText}>{userName.charAt(0).toUpperCase()}</Text>
+            <Text style={styles.avatarText}>{avatarInitial}</Text>
           </Pressable>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-
-        { }
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Próxima Cita</Text>
-          <Pressable onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}>
-            <Text style={styles.sectionLink}>Ver todas</Text>
-          </Pressable>
-        </View>
-
-        <View style={styles.appointmentCard}>
-          <View style={styles.appointmentBadge}>
-            <Text style={styles.badgeText}>CONFIRMADA</Text>
-          </View>
-
-          <Text style={styles.appointmentShop}>Barber Chamos</Text>
-          <Text style={styles.appointmentService}>Combo (Corte + Barba)</Text>
-
-          <View style={styles.appointmentMetaRow}>
-            <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>Barbero</Text>
-              <Text style={styles.metaValue}>El Chamo</Text>
+        {loading ? (
+          <LoadingState message="Cargando tu informacion..." />
+        ) : error ? (
+          <ErrorState message={error} onRetry={handleRetry} />
+        ) : (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Próxima Cita</Text>
+              <Pressable onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}>
+                <Text style={styles.sectionLink}>Ver todas</Text>
+              </Pressable>
             </View>
 
-            <View style={styles.metaDivider} />
+            {nextAppointment ? (
+              <View style={styles.appointmentCard}>
+                <View style={styles.appointmentBadge}>
+                  <Text style={styles.badgeText}>
+                    {statusLabel(nextAppointment.status).toUpperCase()}
+                  </Text>
+                </View>
 
-            <View style={styles.metaItem}>
-              <Text style={styles.metaLabel}>Fecha & Hora</Text>
-              <Text style={styles.metaValue}>Hoy, 4:30 PM</Text>
+                <Text style={styles.appointmentShop}>{nextAppointment.shop.name}</Text>
+                <Text style={styles.appointmentService}>{nextAppointment.service.name}</Text>
+
+                <View style={styles.appointmentMetaRow}>
+                  <View style={styles.metaItem}>
+                    <Text style={styles.metaLabel}>Barbero</Text>
+                    <Text style={styles.metaValue}>{nextAppointment.barber.name}</Text>
+                  </View>
+
+                  <View style={styles.metaDivider} />
+
+                  <View style={styles.metaItem}>
+                    <Text style={styles.metaLabel}>Fecha & Hora</Text>
+                    <Text style={styles.metaValue}>
+                      {formatDate(nextAppointment.scheduled_at)}, {formatTime(nextAppointment.scheduled_at)}
+                    </Text>
+                  </View>
+                </View>
+
+                <View style={styles.cardActions}>
+                  <Pressable
+                    style={styles.btnSecondary}
+                    onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}
+                  >
+                    <Text style={styles.btnSecondaryText}>Detalles / Cancelar</Text>
+                  </Pressable>
+                </View>
+              </View>
+            ) : (
+              <EmptyState
+                title="No tienes citas próximas"
+                actionLabel="Reservar cita ahora"
+                onAction={() => navigation.navigate('Appointments', { initialTab: 'booking' })}
+              />
+            )}
+
+            <Pressable
+              style={({ pressed }) => [styles.heroCta, pressed && styles.heroCtaPressed]}
+              onPress={() => navigation.navigate('Appointments', { initialTab: 'booking' })}
+            >
+              <View>
+                <Text style={styles.heroTitle}>📅 Reservar Nueva Cita</Text>
+                <Text style={styles.heroSub}>Elige barbero, servicio y horario disponible</Text>
+              </View>
+              <View style={styles.heroArrow}>
+                <Text style={styles.heroArrowText}>→</Text>
+              </View>
+            </Pressable>
+
+            <View style={styles.quickRow}>
+              <Pressable
+                style={styles.quickCard}
+                onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}
+              >
+                <Text style={styles.quickIcon}>📋</Text>
+                <Text style={styles.quickTitle}>Mis Citas</Text>
+                <Text style={styles.quickSub}>Historial y activas</Text>
+              </Pressable>
+
+              <Pressable
+                style={styles.quickCard}
+                onPress={() => navigation.navigate('Profile')}
+              >
+                <Text style={styles.quickIcon}>👤</Text>
+                <Text style={styles.quickTitle}>Mi Perfil</Text>
+                <Text style={styles.quickSub}>Ajustes y favorito</Text>
+              </Pressable>
             </View>
-          </View>
 
-          <View style={styles.cardActions}>
-            <Pressable
-              style={styles.btnSecondary}
-              onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}
-            >
-              <Text style={styles.btnSecondaryText}>Detalles / Cancelar</Text>
-            </Pressable>
-          </View>
-        </View>
+            {featuredBarbers.length > 0 && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Barberos Destacados</Text>
+                </View>
 
-        { }
-        <Pressable
-          style={({ pressed }) => [styles.heroCta, pressed && styles.heroCtaPressed]}
-          onPress={() => navigation.navigate('Appointments', { initialTab: 'booking' })}
-        >
-          <View>
-            <Text style={styles.heroTitle}>📅 Reservar Nueva Cita</Text>
-            <Text style={styles.heroSub}>Elige barbero, servicio y horario disponible</Text>
-          </View>
-          <View style={styles.heroArrow}>
-            <Text style={styles.heroArrowText}>→</Text>
-          </View>
-        </Pressable>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
+                  {featuredBarbers.map((barber) => (
+                    <Pressable
+                      key={barber.id}
+                      style={styles.barberCard}
+                      onPress={() => navigation.navigate('Appointments', { initialTab: 'booking', barberId: barber.id })}
+                    >
+                      <View style={styles.barberAvatar}>
+                        <Text style={styles.barberAvatarText}>{barber.name.charAt(0).toUpperCase()}</Text>
+                      </View>
+                      <Text style={styles.barberName}>{barber.name}</Text>
+                      {barber.shop_name ? (
+                        <Text style={styles.barberShop}>{barber.shop_name}</Text>
+                      ) : null}
+                      <View style={styles.ratingBadge}>
+                        <Text style={styles.ratingText}>{barber.rating.toFixed(1)} ⭐</Text>
+                      </View>
+                      <Text style={styles.barberExp}>{barber.experience_years} años exp.</Text>
+                    </Pressable>
+                  ))}
+                </ScrollView>
+              </>
+            )}
 
-        { }
-        <View style={styles.quickRow}>
-          <Pressable
-            style={styles.quickCard}
-            onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}
-          >
-            <Text style={styles.quickIcon}>📋</Text>
-            <Text style={styles.quickTitle}>Mis Citas</Text>
-            <Text style={styles.quickSub}>Historial y activas</Text>
-          </Pressable>
+            {featuredServices.length > 0 && (
+              <>
+                <View style={styles.sectionHeader}>
+                  <Text style={styles.sectionTitle}>Servicios Destacados</Text>
+                </View>
 
-          <Pressable
-            style={styles.quickCard}
-            onPress={() => navigation.navigate('Profile')}
-          >
-            <Text style={styles.quickIcon}>👤</Text>
-            <Text style={styles.quickTitle}>Mi Perfil</Text>
-            <Text style={styles.quickSub}>Ajustes y favorito</Text>
-          </Pressable>
-        </View>
-
-        { }
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Barberos Destacados</Text>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
-          {BARBERS.map((barber) => (
-            <Pressable
-              key={barber.id}
-              style={styles.barberCard}
-              onPress={() => navigation.navigate('Appointments', { initialTab: 'booking', selectedBarber: barber.name })}
-            >
-              <View style={styles.barberAvatar}>
-                <Text style={styles.barberAvatarText}>{barber.name.charAt(0)}</Text>
-              </View>
-              <Text style={styles.barberName}>{barber.name}</Text>
-              <Text style={styles.barberShop}>{barber.shop}</Text>
-              <View style={styles.ratingBadge}>
-                <Text style={styles.ratingText}>{barber.rating}</Text>
-              </View>
-              <Text style={styles.barberExp}>{barber.exp}</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-
-        { }
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>Servicios Destacados</Text>
-        </View>
-
-        <View style={styles.servicesGrid}>
-          {FEATURED_SERVICES.map((item) => (
-            <Pressable
-              key={item.id}
-              style={styles.serviceCard}
-              onPress={() => navigation.navigate('Appointments', { initialTab: 'booking', selectedService: item.title })}
-            >
-              <View style={styles.serviceHeader}>
-                <Text style={styles.serviceTitle}>{item.title}</Text>
-                <Text style={styles.servicePrice}>{item.price}</Text>
-              </View>
-              <Text style={styles.serviceDesc}>{item.desc}</Text>
-              <View style={styles.serviceFooter}>
-                <Text style={styles.serviceTime}>⏱ {item.time}</Text>
-                <Text style={styles.serviceBookText}>Seleccionar →</Text>
-              </View>
-            </Pressable>
-          ))}
-        </View>
-
+                <View style={styles.servicesGrid}>
+                  {featuredServices.map((service) => (
+                    <Pressable
+                      key={service.id}
+                      style={styles.serviceCard}
+                      onPress={() => navigation.navigate('Appointments', { initialTab: 'booking', serviceId: service.id })}
+                    >
+                      <View style={styles.serviceHeader}>
+                        <Text style={styles.serviceTitle}>{service.name}</Text>
+                        <Text style={styles.servicePrice}>{formatPrice(service.price_cop)}</Text>
+                      </View>
+                      {service.description ? (
+                        <Text style={styles.serviceDesc}>{service.description}</Text>
+                      ) : null}
+                      <View style={styles.serviceFooter}>
+                        <Text style={styles.serviceTime}>⏱ {formatDuration(service.duration_minutes)}</Text>
+                        <Text style={styles.serviceBookText}>Seleccionar →</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              </>
+            )}
+          </>
+        )}
       </ScrollView>
     </View>
   );
@@ -366,6 +416,7 @@ function createStyles(colors: Colors) {
       flexDirection: 'row',
       alignItems: 'center',
       justifyContent: 'space-between',
+      marginTop: 20,
       marginBottom: 20,
     },
     heroCtaPressed: {

@@ -11,17 +11,14 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext';
+import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
 
-interface Credentials {
-  email: string;
-  password: string;
-  remember: boolean;
-}
-
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp<'Login'>>();
+  const { signIn } = useAuth();
   const styles = createStyles(COLORS);
 
   const [email, setEmail] = useState('');
@@ -39,23 +36,15 @@ export default function LoginScreen() {
       return;
     }
 
-    const credentials: Credentials = { email, password, remember };
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      console.log('Iniciar sesión con:', credentials);
-      const nameFromEmail = email.split('@')[0];
-      const capitalizedName = nameFromEmail ? nameFromEmail.charAt(0).toUpperCase() + nameFromEmail.slice(1) : 'Usuario';
-      navigation.navigate('Home', { userName: capitalizedName });
+      await signIn(email.trim(), password, remember);
+      // La navegación la resuelve App.tsx al pasar el estado a "signedIn".
     } catch (err) {
-      setError('No pudimos iniciar tu sesión. Intenta de nuevo.');
+      setError(toErrorMessage(err));
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleGuestLogin = () => {
-    navigation.navigate('Home', { userName: 'Invitado' });
   };
 
   const handleGoToRegister = () => {
@@ -166,9 +155,6 @@ export default function LoginScreen() {
                 </View>
                 <Text style={styles.rememberText}>Recordarme</Text>
               </Pressable>
-              <Pressable hitSlop={8}>
-                <Text style={styles.forgot}>¿Olvidaste tu contraseña?</Text>
-              </Pressable>
             </View>
 
             <Pressable
@@ -183,16 +169,6 @@ export default function LoginScreen() {
               <Text style={styles.submitText}>
                 {loading ? 'Iniciando sesión...' : 'Iniciar sesión'}
               </Text>
-            </Pressable>
-
-            <View style={styles.divider}>
-              <View style={styles.dividerLine} />
-              <Text style={styles.dividerText}>O</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            <Pressable style={styles.guest} onPress={handleGuestLogin}>
-              <Text style={styles.guestText}>Continuar como invitado</Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -358,11 +334,6 @@ function createStyles(colors: Colors) {
       fontSize: 13.5,
       color: colors.textMuted,
     },
-    forgot: {
-      fontSize: 13.5,
-      fontWeight: '700',
-      color: colors.primary,
-    },
     submit: {
       backgroundColor: colors.secondary,
       borderRadius: 3,
@@ -379,33 +350,6 @@ function createStyles(colors: Colors) {
       color: colors.textLight,
       fontSize: 15,
       fontWeight: '700',
-    },
-    divider: {
-      flexDirection: 'row',
-      alignItems: 'center',
-      gap: 12,
-      marginVertical: 26,
-    },
-    dividerLine: {
-      flex: 1,
-      height: 1,
-      backgroundColor: colors.border,
-    },
-    dividerText: {
-      fontSize: 12,
-      color: colors.textMuted,
-    },
-    guest: {
-      borderWidth: 1.5,
-      borderColor: colors.secondary,
-      borderRadius: 3,
-      paddingVertical: 14,
-      alignItems: 'center',
-    },
-    guestText: {
-      fontSize: 14.5,
-      fontWeight: '700',
-      color: colors.textDark,
     },
   });
 }

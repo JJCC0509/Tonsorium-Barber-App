@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -11,11 +11,16 @@ import {
   View,
 } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
+import { useAuth } from '../context/AuthContext';
+import { useCatalog } from '../hooks/useCatalog';
+import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<NavigationProp<'Register'>>();
+  const { signUp } = useAuth();
+  const { shops, loading: loadingShops, error: catalogError, refetch: reloadShops } = useCatalog();
   const styles = createStyles(COLORS);
 
   const [fullName, setFullName] = useState('');
@@ -23,21 +28,38 @@ export default function RegisterScreen() {
   const [phone, setPhone] = useState('');
   const [password, setPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
-  const [preferredShop, setPreferredShop] = useState('Barber Chamos');
+  const [preferredShopId, setPreferredShopId] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
+  // Preselecciona la primera barbería en cuanto responde el catálogo.
+  useEffect(() => {
+    if (preferredShopId === null && shops.length > 0) {
+      setPreferredShopId(shops[0].id);
+    }
+  }, [preferredShopId, shops]);
+
   const handleRegister = async () => {
     setError('');
 
-    if (!fullName || !email || !password || !confirmPassword) {
+    if (!fullName.trim() || !email.trim() || !password || !confirmPassword) {
       setError('Por favor completa los campos obligatorios para registrarte.');
+      return;
+    }
+
+    if (fullName.trim().length < 3) {
+      setError('El nombre debe tener al menos 3 caracteres.');
       return;
     }
 
     if (password.length < 8) {
       setError('La contraseña debe tener mínimo 8 caracteres.');
+      return;
+    }
+
+    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
+      setError('La contraseña debe incluir al menos una letra y un número.');
       return;
     }
 
@@ -48,11 +70,16 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      const firstName = fullName.split(' ')[0] || fullName;
-      navigation.navigate('Home', { userName: firstName });
+      await signUp({
+        full_name: fullName.trim(),
+        email: email.trim(),
+        password,
+        ...(phone.trim() ? { phone: phone.trim() } : {}),
+        ...(preferredShopId ? { preferred_shop_id: preferredShopId } : {}),
+      });
+      // App.tsx cambia a la pila autenticada al detectar la sesión.
     } catch (err) {
-      setError('Ocurrió un error al crear la cuenta. Intenta de nuevo.');
+      setError(toErrorMessage(err));
     } finally {
       setLoading(false);
     }
@@ -146,27 +173,40 @@ export default function RegisterScreen() {
 
             <View style={styles.field}>
               <Text style={styles.label}>Barbería preferida</Text>
-              <View style={styles.shopSelector}>
-                {['Barber Chamos', 'Barberia Prado Centro', 'SurBarber'].map((shop) => (
-                  <Pressable
-                    key={shop}
-                    style={[
-                      styles.shopChip,
-                      preferredShop === shop && styles.shopChipActive,
-                    ]}
-                    onPress={() => setPreferredShop(shop)}
-                  >
-                    <Text
-                      style={[
-                        styles.shopChipText,
-                        preferredShop === shop && styles.shopChipTextActive,
-                      ]}
-                    >
-                      {shop}
-                    </Text>
+              {loadingShops ? (
+                <Text style={styles.shopHint}>Cargando barberías...</Text>
+              ) : shops.length === 0 ? (
+                <View>
+                  <Text style={styles.shopHint}>
+                    {catalogError ?? 'No hay barberías disponibles por ahora.'}
+                  </Text>
+                  <Pressable onPress={reloadShops} hitSlop={6}>
+                    <Text style={styles.shopRetry}>Reintentar</Text>
                   </Pressable>
-                ))}
-              </View>
+                </View>
+              ) : (
+                <View style={styles.shopSelector}>
+                  {shops.map((shop) => (
+                    <Pressable
+                      key={shop.id}
+                      style={[
+                        styles.shopChip,
+                        preferredShopId === shop.id && styles.shopChipActive,
+                      ]}
+                      onPress={() => setPreferredShopId(shop.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.shopChipText,
+                          preferredShopId === shop.id && styles.shopChipTextActive,
+                        ]}
+                      >
+                        {shop.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              )}
             </View>
 
             <View style={styles.field}>
@@ -174,7 +214,7 @@ export default function RegisterScreen() {
               <View style={styles.inputRow}>
                 <TextInput
                   style={styles.input}
-                  placeholder="Mínimo 8 caracteres"
+                  placeholder="Mínimo 8 caracteres, con letra y número"
                   placeholderTextColor={COLORS.textMuted}
                   value={password}
                   onChangeText={setPassword}
@@ -371,6 +411,17 @@ function createStyles(colors: Colors) {
     shopChipTextActive: {
       color: colors.textLight,
       fontWeight: '700',
+    },
+    shopHint: {
+      fontSize: 12.5,
+      color: colors.textMuted,
+      marginTop: 4,
+    },
+    shopRetry: {
+      fontSize: 12.5,
+      fontWeight: '700',
+      color: colors.primary,
+      marginTop: 8,
     },
     submit: {
       backgroundColor: colors.secondary,
