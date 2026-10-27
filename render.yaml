@@ -1,0 +1,24 @@
+# Blueprint de Render para el backend de Tonsorium.
+# Uso: Render Dashboard -> New -> Blueprint -> seleccionar el repositorio.
+# Los valores marcados con `sync: false` se piden en el panel y NUNCA viven en Git.
+services:
+  - type: web
+    name: tonsorium-api
+    runtime: node
+    plan: free
+    region: oregon
+    rootDir: backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/v1/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: JWT_SECRET
+        sync: false
+      - key: ALLOWED_ORIGINS
+        value: '*'
