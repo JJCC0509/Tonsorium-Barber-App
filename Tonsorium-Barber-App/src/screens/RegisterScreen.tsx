@@ -16,12 +16,16 @@ import { useCatalog } from '../hooks/useCatalog';
 import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
+import { useAuth } from '../context/AuthContext';
+import { ApiError } from '../services/api';
+import { SHOPS } from '../constants/catalog';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<NavigationProp<'Register'>>();
   const { signUp } = useAuth();
   const { shops, loading: loadingShops, error: catalogError, refetch: reloadShops } = useCatalog();
   const styles = createStyles(COLORS);
+  const { register } = useAuth();
 
   const [fullName, setFullName] = useState('');
   const [email, setEmail] = useState('');
@@ -70,16 +74,21 @@ export default function RegisterScreen() {
 
     setLoading(true);
     try {
-      await signUp({
-        full_name: fullName.trim(),
-        email: email.trim(),
+      const created = await register({
+        fullName,
+        email,
+        phone: phone || undefined,
+        preferredShop,
         password,
-        ...(phone.trim() ? { phone: phone.trim() } : {}),
-        ...(preferredShopId ? { preferred_shop_id: preferredShopId } : {}),
+        confirmPassword,
       });
-      // App.tsx cambia a la pila autenticada al detectar la sesión.
+      navigation.navigate('Home', { userName: created.firstName });
     } catch (err) {
-      setError(toErrorMessage(err));
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('Ocurrió un error al crear la cuenta. Intenta de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
@@ -173,22 +182,17 @@ export default function RegisterScreen() {
 
             <View style={styles.field}>
               <Text style={styles.label}>Barbería preferida</Text>
-              {loadingShops ? (
-                <Text style={styles.shopHint}>Cargando barberías...</Text>
-              ) : shops.length === 0 ? (
-                <View>
-                  <Text style={styles.shopHint}>
-                    {catalogError ?? 'No hay barberías disponibles por ahora.'}
-                  </Text>
-                  <Pressable onPress={reloadShops} hitSlop={6}>
-                    <Text style={styles.shopRetry}>Reintentar</Text>
-                  </Pressable>
-                </View>
-              ) : (
-                <View style={styles.shopSelector}>
-                  {shops.map((shop) => (
-                    <Pressable
-                      key={shop.id}
+              <View style={styles.shopSelector}>
+                {SHOPS.map((shop) => (
+                  <Pressable
+                    key={shop}
+                    style={[
+                      styles.shopChip,
+                      preferredShop === shop && styles.shopChipActive,
+                    ]}
+                    onPress={() => setPreferredShop(shop)}
+                  >
+                    <Text
                       style={[
                         styles.shopChip,
                         preferredShopId === shop.id && styles.shopChipActive,

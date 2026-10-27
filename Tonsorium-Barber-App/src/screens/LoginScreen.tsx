@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import {
   KeyboardAvoidingView,
   Platform,
@@ -15,11 +15,14 @@ import { useAuth } from '../context/AuthContext';
 import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
+import { useAuth } from '../context/AuthContext';
+import { ApiError } from '../services/api';
 
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp<'Login'>>();
   const { signIn } = useAuth();
   const styles = createStyles(COLORS);
+  const { user, isGuest, loading: authLoading, login, loginAsGuest } = useAuth();
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -27,6 +30,15 @@ export default function LoginScreen() {
   const [remember, setRemember] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (!authLoading && (user || isGuest)) {
+      navigation.reset({
+        index: 0,
+        routes: [{ name: 'Home', params: { userName: user?.firstName ?? 'Invitado' } }],
+      });
+    }
+  }, [authLoading, user, isGuest, navigation]);
 
   const handleSubmit = async () => {
     setError('');
@@ -38,13 +50,22 @@ export default function LoginScreen() {
 
     setLoading(true);
     try {
-      await signIn(email.trim(), password, remember);
-      // La navegación la resuelve App.tsx al pasar el estado a "signedIn".
+      const loggedUser = await login({ email, password, remember });
+      navigation.navigate('Home', { userName: loggedUser.firstName });
     } catch (err) {
-      setError(toErrorMessage(err));
+      if (err instanceof ApiError) {
+        setError(err.message);
+      } else {
+        setError('No pudimos iniciar tu sesión. Intenta de nuevo.');
+      }
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleGuestLogin = () => {
+    loginAsGuest();
+    navigation.navigate('Home', { userName: 'Invitado' });
   };
 
   const handleGoToRegister = () => {

@@ -1,8 +1,8 @@
+// Extiende Request con el usuario autenticado.
 declare global {
   namespace Express {
     interface Request {
-      /** Id del usuario autenticado. Lo define el middleware `requireAuth`. */
-      userId?: string;
+      user?: { id: string };
     }
   }
 }

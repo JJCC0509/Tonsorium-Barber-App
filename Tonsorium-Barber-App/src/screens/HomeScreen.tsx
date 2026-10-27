@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import React from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   Platform,
   Pressable,
@@ -8,54 +8,50 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { COLORS, Colors } from '../styles/colors';
-import { NavigationProp } from '../types/navigation';
+import { NavigationProp, ScreenRouteProp } from '../types/navigation';
 import { useAuth } from '../context/AuthContext';
-import { useCatalog } from '../hooks/useCatalog';
-import { useAppointments } from '../hooks/useAppointments';
-import { EmptyState, ErrorState, LoadingState } from '../components/StateViews';
-import {
-  formatDate,
-  formatDuration,
-  formatPrice,
-  formatTime,
-  statusLabel,
-} from '../utils/format';
+import { BARBERS, SERVICES } from '../constants/catalog';
+import type { AppointmentItem } from '../types/api';
+import { ApiError } from '../services/api';
+import { getAppointments } from '../services/appointments.api';
+import { formatDate, formatPrice, formatTime } from '../utils/format';
 
 export default function HomeScreen() {
   const navigation = useNavigation<NavigationProp<'Home'>>();
-  const { me } = useAuth();
-  const {
-    barbers,
-    services,
-    loading: catalogLoading,
-    error: catalogError,
-    refetch: refetchCatalog,
-  } = useCatalog();
-  const {
-    appointments,
-    loading: appointmentsLoading,
-    error: appointmentsError,
-    refetch: refetchAppointments,
-  } = useAppointments('upcoming');
+  const route = useRoute<ScreenRouteProp<'Home'>>();
+  const { user, isGuest } = useAuth();
+  const userName = user?.firstName ?? (isGuest ? 'Invitado' : (route.params?.userName || 'Usuario'));
   const styles = createStyles(COLORS);
 
-  const fullName = me?.user.full_name.trim() ?? '';
-  const firstName = fullName.length > 0 ? fullName.split(' ')[0] : 'Usuario';
-  const avatarInitial = firstName.charAt(0).toUpperCase();
+  const [nextApt, setNextApt] = useState<AppointmentItem | null>(null);
+  const [nextLoading, setNextLoading] = useState(false);
+  const [nextError, setNextError] = useState('');
 
-  const nextAppointment = appointments[0] ?? null;
-  const featuredBarbers = barbers.slice(0, 3);
-  const featuredServices = services.slice(0, 4);
+  const loadNext = useCallback(async () => {
+    if (isGuest) return;
+    setNextLoading(true);
+    setNextError('');
+    try {
+      const res = await getAppointments({ filter: 'upcoming', limit: 1 });
+      setNextApt(res.items[0] ?? null);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setNextError(err.message);
+      } else {
+        setNextError('No pudimos cargar tu próxima cita.');
+      }
+    } finally {
+      setNextLoading(false);
+    }
+  }, [isGuest]);
 
-  const loading = catalogLoading || appointmentsLoading;
-  const error = catalogError ?? appointmentsError;
-
-  const handleRetry = () => {
-    void refetchCatalog();
-    void refetchAppointments();
-  };
+  useFocusEffect(
+    useCallback(() => {
+      void loadNext();
+    }, [loadNext]),
+  );
 
   return (
     <View style={styles.root}>
@@ -82,35 +78,101 @@ export default function HomeScreen() {
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {loading ? (
-          <LoadingState message="Cargando tu informacion..." />
-        ) : error ? (
-          <ErrorState message={error} onRetry={handleRetry} />
-        ) : (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Próxima Cita</Text>
-              <Pressable onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}>
-                <Text style={styles.sectionLink}>Ver todas</Text>
+
+        { }
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionTitle}>Próxima Cita</Text>
+          <Pressable onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}>
+            <Text style={styles.sectionLink}>Ver todas</Text>
+          </Pressable>
+        </View>
+
+        {isGuest ? (
+          <View style={styles.appointmentCard}>
+            <Text style={styles.appointmentService}>Explora como invitado</Text>
+            <Text style={styles.guestSub}>Inicia sesión para ver tu próxima cita y reservar turnos.</Text>
+            <View style={styles.cardActions}>
+              <Pressable
+                style={styles.btnSecondary}
+                onPress={() => navigation.navigate('Login')}
+              >
+                <Text style={styles.btnSecondaryText}>Iniciar sesión</Text>
               </Pressable>
             </View>
+          </View>
+        ) : nextLoading ? (
+          <View style={styles.appointmentCard}>
+            <Text style={styles.stateText}>Cargando tu próxima cita...</Text>
+          </View>
+        ) : nextError ? (
+          <View style={styles.appointmentCard}>
+            <Text style={styles.stateErrorText}>{nextError}</Text>
+            <View style={styles.cardActions}>
+              <Pressable style={styles.btnSecondary} onPress={() => void loadNext()}>
+                <Text style={styles.btnSecondaryText}>Reintentar</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : !nextApt ? (
+          <View style={styles.appointmentCard}>
+            <Text style={styles.appointmentService}>Sin próxima cita</Text>
+            <Text style={styles.guestSub}>Reserva tu turno para mantener tu estilo al día.</Text>
+            <View style={styles.cardActions}>
+              <Pressable
+                style={styles.btnSecondary}
+                onPress={() => navigation.navigate('Appointments', { initialTab: 'booking' })}
+              >
+                <Text style={styles.btnSecondaryText}>Reservar ahora</Text>
+              </Pressable>
+            </View>
+          </View>
+        ) : (
+          <View style={styles.appointmentCard}>
+            <View style={styles.appointmentBadge}>
+              <Text style={styles.badgeText}>CONFIRMADA</Text>
+            </View>
 
-            {nextAppointment ? (
-              <View style={styles.appointmentCard}>
-                <View style={styles.appointmentBadge}>
-                  <Text style={styles.badgeText}>
-                    {statusLabel(nextAppointment.status).toUpperCase()}
-                  </Text>
-                </View>
+            <Text style={styles.appointmentShop}>{nextApt.shop}</Text>
+            <Text style={styles.appointmentService}>{nextApt.serviceName}</Text>
 
-                <Text style={styles.appointmentShop}>{nextAppointment.shop.name}</Text>
-                <Text style={styles.appointmentService}>{nextAppointment.service.name}</Text>
+            <View style={styles.appointmentMetaRow}>
+              <View style={styles.metaItem}>
+                <Text style={styles.metaLabel}>Barbero</Text>
+                <Text style={styles.metaValue}>{nextApt.barberName}</Text>
+              </View>
 
-                <View style={styles.appointmentMetaRow}>
-                  <View style={styles.metaItem}>
-                    <Text style={styles.metaLabel}>Barbero</Text>
-                    <Text style={styles.metaValue}>{nextAppointment.barber.name}</Text>
-                  </View>
+              <View style={styles.metaDivider} />
+
+              <View style={styles.metaItem}>
+                <Text style={styles.metaLabel}>Fecha & Hora</Text>
+                <Text style={styles.metaValue}>{formatDate(nextApt.startAt)}, {formatTime(nextApt.startAt)}</Text>
+              </View>
+            </View>
+
+            <View style={styles.cardActions}>
+              <Pressable
+                style={styles.btnSecondary}
+                onPress={() => navigation.navigate('Appointments', { initialTab: 'my_appointments' })}
+              >
+                <Text style={styles.btnSecondaryText}>Detalles / Cancelar</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        { }
+        <Pressable
+          style={({ pressed }) => [styles.heroCta, pressed && styles.heroCtaPressed]}
+          onPress={() => navigation.navigate('Appointments', { initialTab: 'booking' })}
+        >
+          <View>
+            <Text style={styles.heroTitle}>📅 Reservar Nueva Cita</Text>
+            <Text style={styles.heroSub}>Elige barbero, servicio y horario disponible</Text>
+          </View>
+          <View style={styles.heroArrow}>
+            <Text style={styles.heroArrowText}>→</Text>
+          </View>
+        </Pressable>
 
                   <View style={styles.metaDivider} />
 
@@ -150,6 +212,7 @@ export default function HomeScreen() {
               <View style={styles.heroArrow}>
                 <Text style={styles.heroArrowText}>→</Text>
               </View>
+              <Text style={styles.barberExp}>{barber.experience}</Text>
             </Pressable>
 
             <View style={styles.quickRow}>
@@ -162,51 +225,25 @@ export default function HomeScreen() {
                 <Text style={styles.quickSub}>Historial y activas</Text>
               </Pressable>
 
-              <Pressable
-                style={styles.quickCard}
-                onPress={() => navigation.navigate('Profile')}
-              >
-                <Text style={styles.quickIcon}>👤</Text>
-                <Text style={styles.quickTitle}>Mi Perfil</Text>
-                <Text style={styles.quickSub}>Ajustes y favorito</Text>
-              </Pressable>
-            </View>
-
-            {featuredBarbers.length > 0 && (
-              <>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Barberos Destacados</Text>
-                </View>
-
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.horizontalList}>
-                  {featuredBarbers.map((barber) => (
-                    <Pressable
-                      key={barber.id}
-                      style={styles.barberCard}
-                      onPress={() => navigation.navigate('Appointments', { initialTab: 'booking', barberId: barber.id })}
-                    >
-                      <View style={styles.barberAvatar}>
-                        <Text style={styles.barberAvatarText}>{barber.name.charAt(0).toUpperCase()}</Text>
-                      </View>
-                      <Text style={styles.barberName}>{barber.name}</Text>
-                      {barber.shop_name ? (
-                        <Text style={styles.barberShop}>{barber.shop_name}</Text>
-                      ) : null}
-                      <View style={styles.ratingBadge}>
-                        <Text style={styles.ratingText}>{barber.rating.toFixed(1)} ⭐</Text>
-                      </View>
-                      <Text style={styles.barberExp}>{barber.experience_years} años exp.</Text>
-                    </Pressable>
-                  ))}
-                </ScrollView>
-              </>
-            )}
-
-            {featuredServices.length > 0 && (
-              <>
-                <View style={styles.sectionHeader}>
-                  <Text style={styles.sectionTitle}>Servicios Destacados</Text>
-                </View>
+        <View style={styles.servicesGrid}>
+          {SERVICES.map((item) => (
+            <Pressable
+              key={item.id}
+              style={styles.serviceCard}
+              onPress={() => navigation.navigate('Appointments', { initialTab: 'booking', selectedService: item.name })}
+            >
+              <View style={styles.serviceHeader}>
+                <Text style={styles.serviceTitle}>{item.name}</Text>
+                <Text style={styles.servicePrice}>{formatPrice(item.price)}</Text>
+              </View>
+              <Text style={styles.serviceDesc}>{item.description}</Text>
+              <View style={styles.serviceFooter}>
+                <Text style={styles.serviceTime}>⏱ {item.durationMinutes} min</Text>
+                <Text style={styles.serviceBookText}>Seleccionar →</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
 
                 <View style={styles.servicesGrid}>
                   {featuredServices.map((service) => (
@@ -407,6 +444,19 @@ function createStyles(colors: Colors) {
       fontSize: 12.5,
       color: colors.textDark,
       fontWeight: '600',
+    },
+    stateText: {
+      fontSize: 13.5,
+      color: colors.textMuted,
+    },
+    stateErrorText: {
+      fontSize: 13.5,
+      color: colors.error,
+    },
+    guestSub: {
+      fontSize: 12.5,
+      color: colors.textMuted,
+      lineHeight: 17,
     },
 
     heroCta: {

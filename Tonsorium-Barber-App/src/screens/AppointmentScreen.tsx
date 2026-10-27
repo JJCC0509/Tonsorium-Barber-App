@@ -1,5 +1,5 @@
 import { StatusBar } from 'expo-status-bar';
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Platform,
@@ -9,144 +9,142 @@ import {
   Text,
   View,
 } from 'react-native';
-import { useNavigation, useRoute } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp, ScreenRouteProp } from '../types/navigation';
-import { ApiError, toErrorMessage } from '../services/apiClient';
-import { useCatalog } from '../hooks/useCatalog';
-import { useAppointments } from '../hooks/useAppointments';
-import { EmptyState, ErrorState, LoadingState } from '../components/StateViews';
-import { buildDays, buildSlots, firstEnabledSlotIndex } from '../utils/schedule';
-import {
-  formatDate,
-  formatDuration,
-  formatPrice,
-  formatTime,
-  statusLabel,
-} from '../utils/format';
+import { useAuth } from '../context/AuthContext';
+import { BARBERS, SERVICES, TIMES } from '../constants/catalog';
+import type { AppointmentItem, AppointmentsSummary } from '../types/api';
+import { ApiError } from '../services/api';
+import { cancelAppointment, createAppointment, getAppointments } from '../services/appointments.api';
+import { formatDate, formatPrice, formatTime, getNext7Days, nowBogotaMinutes, statusLabel } from '../utils/format';
+
+function timeValueToMinutes(value: string): number {
+  const [h, m] = value.split(':').map(Number);
+  return h * 60 + m;
+}
 
 export default function AppointmentsScreen() {
   const navigation = useNavigation<NavigationProp<'Appointments'>>();
   const route = useRoute<ScreenRouteProp<'Appointments'>>();
   const styles = createStyles(COLORS);
+  const { isGuest } = useAuth();
+
+  const days = useMemo(() => getNext7Days(), []);
 
   const catalog = useCatalog();
 
   const [activeTab, setActiveTab] = useState<'booking' | 'my_appointments'>(
     route.params?.initialTab || 'booking'
   );
+
+  useEffect(() => {
+    if (route.params?.initialTab) setActiveTab(route.params.initialTab);
+  }, [route.params?.initialTab]);
+
   const [listFilter, setListFilter] = useState<'upcoming' | 'history'>('upcoming');
 
-  const { appointments: upcomingAppointments, create } = useAppointments('upcoming');
-  const {
-    appointments: listAppointments,
-    loading: listLoading,
-    error: listError,
-    refetch: refetchList,
-    cancel,
-  } = useAppointments(listFilter);
+  const [appointments, setAppointments] = useState<AppointmentItem[]>([]);
+  const [summary, setSummary] = useState<AppointmentsSummary | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState('');
 
-  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null);
-  const [selectedBarberId, setSelectedBarberId] = useState<string | null>(null);
-  const [selectedDayKey, setSelectedDayKey] = useState<string>(() => buildDays()[0].key);
-  const [selectedSlotIso, setSelectedSlotIso] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const initialServiceId =
+    SERVICES.find((s) => s.name === route.params?.selectedService)?.id ?? 's3';
+  const initialBarberId =
+    BARBERS.find((b) => b.name === route.params?.selectedBarber)?.id ?? 'b1';
+
+  const [selectedServiceId, setSelectedServiceId] = useState(initialServiceId);
+  const [selectedBarberId, setSelectedBarberId] = useState(initialBarberId);
+  const [selectedDate, setSelectedDate] = useState(days[0]?.value ?? '');
+  const [selectedTime, setSelectedTime] = useState('16:30');
   const [successMessage, setSuccessMessage] = useState('');
+  const [bookingError, setBookingError] = useState('');
+  const [bookingLoading, setBookingLoading] = useState(false);
 
-  const days = useMemo(() => buildDays(), []);
-  const slots = useMemo(() => buildSlots(selectedDayKey), [selectedDayKey]);
+  const selectedService = SERVICES.find((s) => s.id === selectedServiceId) ?? SERVICES[0];
+  const selectedBarber = BARBERS.find((b) => b.id === selectedBarberId) ?? BARBERS[0];
+  const selectedDay = days.find((d) => d.value === selectedDate);
+  const selectedTimeSlot = TIMES.find((t) => t.value === selectedTime);
 
-  const selectedService = catalog.services.find((s) => s.id === selectedServiceId) ?? null;
-  const selectedBarber = catalog.barbers.find((b) => b.id === selectedBarberId) ?? null;
-  const selectedSlot = slots.find((s) => s.iso === selectedSlotIso) ?? null;
+  const { todayValue, minutes: currentMinutes } = nowBogotaMinutes();
+  const isToday = selectedDate === todayValue;
 
-  const canConfirm =
-    selectedServiceId !== null && selectedBarberId !== null && selectedSlotIso !== null;
-
-  // Preselecciona servicio y barbero en cuanto el catalogo esta disponible.
-  useEffect(() => {
-    if (catalog.loading) {
-      return;
-    }
-
-    if (selectedServiceId === null) {
-      const requested = route.params?.serviceId;
-      const fromRoute = requested && catalog.services.some((s) => s.id === requested);
-      const next = fromRoute ? requested : catalog.services[0]?.id;
-      if (next) {
-        setSelectedServiceId(next);
+  const loadList = useCallback(async (filter: 'upcoming' | 'history') => {
+    if (isGuest) return;
+    setListLoading(true);
+    setListError('');
+    try {
+      const res = await getAppointments({ filter });
+      setAppointments(res.items);
+      setSummary(res.summary);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        setListError(err.message);
+      } else {
+        setListError('No pudimos cargar tus citas.');
       }
+    } finally {
+      setListLoading(false);
     }
+  }, [isGuest]);
 
-    if (selectedBarberId === null) {
-      const requested = route.params?.barberId;
-      const fromRoute = requested && catalog.barbers.some((b) => b.id === requested);
-      const next = fromRoute ? requested : catalog.barbers[0]?.id;
-      if (next) {
-        setSelectedBarberId(next);
-      }
-    }
-  }, [
-    catalog.loading,
-    catalog.services,
-    catalog.barbers,
-    route.params?.serviceId,
-    route.params?.barberId,
-    selectedServiceId,
-    selectedBarberId,
-  ]);
+  useFocusEffect(
+    useCallback(() => {
+      if (activeTab === 'my_appointments') void loadList(listFilter);
+    }, [activeTab, listFilter, loadList]),
+  );
 
-  // Al cambiar de dia se re-selecciona la primera franja habilitada.
   useEffect(() => {
-    const index = firstEnabledSlotIndex(slots);
-    setSelectedSlotIso(index >= 0 ? slots[index].iso : null);
-  }, [slots]);
+    if (activeTab === 'my_appointments') void loadList(listFilter);
+  }, [activeTab, listFilter, loadList]);
 
   const handleConfirmBooking = async () => {
-    if (!canConfirm || submitting || !selectedServiceId || !selectedBarberId || !selectedSlotIso) {
-      return;
-    }
-
-    setSubmitting(true);
+    setBookingError('');
+    setBookingLoading(true);
     try {
-      await create({
-        service_id: selectedServiceId,
-        barber_id: selectedBarberId,
-        scheduled_at: selectedSlotIso,
+      await createAppointment({
+        serviceId: selectedServiceId,
+        barberId: selectedBarberId,
+        date: selectedDate,
+        time: selectedTime,
       });
       setSuccessMessage('¡Cita reservada correctamente!');
 
       setTimeout(() => {
         setSuccessMessage('');
         setActiveTab('my_appointments');
-        if (listFilter === 'upcoming') {
-          void refetchList({ silent: true });
-        }
         setListFilter('upcoming');
+        void loadList('upcoming');
       }, 1500);
     } catch (err) {
-      const message =
-        err instanceof ApiError && err.code === 'SLOT_TAKEN'
-          ? 'Ese horario ya está ocupado, elige otro.'
-          : toErrorMessage(err);
-      Alert.alert('No se pudo reservar', message);
+      if (err instanceof ApiError) {
+        setBookingError(err.message);
+      } else {
+        setBookingError('No pudimos reservar tu cita. Intenta de nuevo.');
+      }
     } finally {
-      setSubmitting(false);
+      setBookingLoading(false);
     }
   };
 
   const handleCancelAppointment = (id: string) => {
     Alert.alert('Cancelar cita', '¿Seguro que quieres cancelar esta cita?', [
-      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Volver', style: 'cancel' },
       {
         text: 'Sí, cancelar',
         style: 'destructive',
         onPress: () => {
           void (async () => {
             try {
-              await cancel(id);
+              await cancelAppointment(id);
+              await loadList(listFilter);
             } catch (err) {
-              Alert.alert('No se pudo cancelar', toErrorMessage(err));
+              if (err instanceof ApiError) {
+                setListError(err.message);
+              } else {
+                setListError('No pudimos cancelar la cita.');
+              }
             }
           })();
         },
@@ -154,7 +152,7 @@ export default function AppointmentsScreen() {
     ]);
   };
 
-  const confirmedCount = upcomingAppointments.length;
+  const upcomingCount = summary?.upcomingCount ?? 0;
 
   return (
     <View style={styles.root}>
@@ -184,137 +182,126 @@ export default function AppointmentsScreen() {
             onPress={() => setActiveTab('my_appointments')}
           >
             <Text style={[styles.tabText, activeTab === 'my_appointments' && styles.tabTextActive]}>
-              📋 Mis citas ({confirmedCount})
+              📋 Mis citas ({upcomingCount})
             </Text>
           </Pressable>
         </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
-        {activeTab === 'booking' ? (
-          catalog.loading ? (
-            <LoadingState message="Cargando catalogo..." />
-          ) : catalog.error ? (
-            <ErrorState
-              message={catalog.error}
-              onRetry={() => {
-                void catalog.refetch();
-              }}
-            />
-          ) : (
-            <View style={styles.bookingForm}>
-              <Text style={styles.formSectionTitle}>1. Selecciona tu servicio</Text>
-              <View style={styles.serviceList}>
-                {catalog.services.map((srv) => (
-                  <Pressable
-                    key={srv.id}
-                    style={[
-                      styles.serviceOption,
-                      selectedServiceId === srv.id && styles.serviceOptionSelected,
-                    ]}
-                    onPress={() => setSelectedServiceId(srv.id)}
-                  >
-                    <View style={styles.radioDot}>
-                      {selectedServiceId === srv.id && <View style={styles.radioInner} />}
-                    </View>
-                    <View style={styles.serviceInfo}>
-                      <Text style={styles.optionTitle}>{srv.name}</Text>
-                      <Text style={styles.optionSub}>{formatDuration(srv.duration_minutes)}</Text>
-                    </View>
-                    <Text style={styles.optionPrice}>{formatPrice(srv.price_cop)}</Text>
-                  </Pressable>
-                ))}
-              </View>
+        {isGuest ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyIcon}>🔒</Text>
+            <Text style={styles.emptyTitle}>Inicia sesión para reservar</Text>
+            <Text style={styles.emptySub}>
+              Como invitado puedes explorar, pero necesitas una cuenta para reservar y ver tus citas.
+            </Text>
+            <Pressable style={styles.emptyBtn} onPress={() => navigation.navigate('Login')}>
+              <Text style={styles.emptyBtnText}>Iniciar sesión</Text>
+            </Pressable>
+          </View>
+        ) : activeTab === 'booking' ? (
 
-              <Text style={styles.formSectionTitle}>2. Selecciona tu barbero</Text>
-              <View style={styles.barberList}>
-                {catalog.barbers.map((b) => (
-                  <Pressable
-                    key={b.id}
-                    style={[
-                      styles.barberOption,
-                      selectedBarberId === b.id && styles.barberOptionSelected,
-                    ]}
-                    onPress={() => setSelectedBarberId(b.id)}
-                  >
-                    <View style={styles.radioDot}>
-                      {selectedBarberId === b.id && <View style={styles.radioInner} />}
-                    </View>
-                    <View style={styles.serviceInfo}>
-                      <Text style={styles.optionTitle}>{b.name}</Text>
-                      {b.shop_name ? <Text style={styles.optionSub}>{b.shop_name}</Text> : null}
-                    </View>
-                  </Pressable>
-                ))}
-              </View>
+          <View style={styles.bookingForm}>
+            <Text style={styles.formSectionTitle}>1. Selecciona tu servicio</Text>
+            <View style={styles.serviceList}>
+              {SERVICES.map((srv) => (
+                <Pressable
+                  key={srv.id}
+                  style={[
+                    styles.serviceOption,
+                    selectedServiceId === srv.id && styles.serviceOptionSelected,
+                  ]}
+                  onPress={() => setSelectedServiceId(srv.id)}
+                >
+                  <View style={styles.radioDot}>
+                    {selectedServiceId === srv.id && <View style={styles.radioInner} />}
+                  </View>
+                  <View style={styles.serviceInfo}>
+                    <Text style={styles.optionTitle}>{srv.name}</Text>
+                    <Text style={styles.optionSub}>{srv.durationMinutes} min</Text>
+                  </View>
+                  <Text style={styles.optionPrice}>{formatPrice(srv.price)}</Text>
+                </Pressable>
+              ))}
+            </View>
 
-              <Text style={styles.formSectionTitle}>3. Elige el día</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
-                {days.map((day) => (
+            <Text style={styles.formSectionTitle}>2. Selecciona tu barbero</Text>
+            <View style={styles.barberList}>
+              {BARBERS.map((b) => (
+                <Pressable
+                  key={b.id}
+                  style={[
+                    styles.barberOption,
+                    selectedBarberId === b.id && styles.barberOptionSelected,
+                  ]}
+                  onPress={() => setSelectedBarberId(b.id)}
+                >
+                  <View style={styles.radioDot}>
+                    {selectedBarberId === b.id && <View style={styles.radioInner} />}
+                  </View>
+                  <View style={styles.serviceInfo}>
+                    <Text style={styles.optionTitle}>{b.name}</Text>
+                    <Text style={styles.optionSub}>{b.shop}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={styles.formSectionTitle}>3. Elige el día</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
+              {days.map((d) => (
+                <Pressable
+                  key={d.value}
+                  style={[styles.dateChip, selectedDate === d.value && styles.chipSelected]}
+                  onPress={() => setSelectedDate(d.value)}
+                >
+                  <Text style={[styles.chipText, selectedDate === d.value && styles.chipTextSelected]}>
+                    {d.label}
+                  </Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+
+            <Text style={styles.formSectionTitle}>4. Elige el horario</Text>
+            <View style={styles.timeGrid}>
+              {TIMES.map((t) => {
+                const past = isToday && timeValueToMinutes(t.value) <= currentMinutes;
+                return (
                   <Pressable
-                    key={day.key}
-                    style={[styles.dateChip, selectedDayKey === day.key && styles.chipSelected]}
-                    onPress={() => setSelectedDayKey(day.key)}
+                    key={t.value}
+                    style={[
+                      styles.timeChip,
+                      selectedTime === t.value && styles.chipSelected,
+                      past && styles.timeChipDisabled,
+                    ]}
+                    onPress={() => setSelectedTime(t.value)}
+                    disabled={past}
                   >
-                    <Text style={[styles.chipText, selectedDayKey === day.key && styles.chipTextSelected]}>
-                      {day.label}
+                    <Text style={[styles.chipText, selectedTime === t.value && styles.chipTextSelected]}>
+                      {t.label}
                     </Text>
                   </Pressable>
-                ))}
-              </ScrollView>
+                );
+              })}
+            </View>
 
-              <Text style={styles.formSectionTitle}>4. Elige el horario</Text>
-              <View style={styles.timeGrid}>
-                {slots.map((slot) => {
-                  const isSelected = selectedSlotIso === slot.iso;
-                  return (
-                    <Pressable
-                      key={slot.iso}
-                      disabled={slot.disabled}
-                      style={[
-                        styles.timeChip,
-                        isSelected && styles.chipSelected,
-                        slot.disabled && styles.chipDisabled,
-                      ]}
-                      onPress={() => {
-                        if (!slot.disabled) {
-                          setSelectedSlotIso(slot.iso);
-                        }
-                      }}
-                    >
-                      <Text style={[styles.chipText, isSelected && styles.chipTextSelected]}>
-                        {slot.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
+            { }
+            <View style={styles.summaryBox}>
+              <Text style={styles.summaryTitle}>Resumen de la reserva</Text>
+              <View style={styles.summaryLine}>
+                <Text style={styles.summaryLabel}>Servicio:</Text>
+                <Text style={styles.summaryVal}>{selectedService.name}</Text>
               </View>
-
-              <View style={styles.summaryBox}>
-                <Text style={styles.summaryTitle}>Resumen de la reserva</Text>
-                <View style={styles.summaryLine}>
-                  <Text style={styles.summaryLabel}>Servicio:</Text>
-                  <Text style={styles.summaryVal}>{selectedService?.name ?? '—'}</Text>
-                </View>
-                <View style={styles.summaryLine}>
-                  <Text style={styles.summaryLabel}>Barbero:</Text>
-                  <Text style={styles.summaryVal}>{selectedBarber?.name ?? '—'}</Text>
-                </View>
-                <View style={styles.summaryLine}>
-                  <Text style={styles.summaryLabel}>Fecha y Hora:</Text>
-                  <Text style={styles.summaryVal}>
-                    {selectedSlot
-                      ? `${formatDate(selectedSlot.iso)}, ${formatTime(selectedSlot.iso)}`
-                      : '—'}
-                  </Text>
-                </View>
-                <View style={styles.summaryLine}>
-                  <Text style={styles.summaryLabel}>Precio:</Text>
-                  <Text style={styles.summaryVal}>
-                    {selectedService ? formatPrice(selectedService.price_cop) : '—'}
-                  </Text>
-                </View>
+              <View style={styles.summaryLine}>
+                <Text style={styles.summaryLabel}>Barbero:</Text>
+                <Text style={styles.summaryVal}>{selectedBarber.name}</Text>
               </View>
+              <View style={styles.summaryLine}>
+                <Text style={styles.summaryLabel}>Fecha y Hora:</Text>
+                <Text style={styles.summaryVal}>{selectedDay?.label ?? selectedDate}, {selectedTimeSlot?.label ?? selectedTime}</Text>
+              </View>
+            </View>
 
               {!!successMessage && (
                 <View style={styles.successBanner}>
@@ -322,19 +309,20 @@ export default function AppointmentsScreen() {
                 </View>
               )}
 
-              <Pressable
-                style={[styles.confirmBtn, (!canConfirm || submitting) && styles.confirmBtnDisabled]}
-                disabled={!canConfirm || submitting}
-                onPress={() => {
-                  void handleConfirmBooking();
-                }}
-              >
-                <Text style={styles.confirmBtnText}>
-                  {submitting ? 'Reservando...' : 'Confirmar cita'}
-                </Text>
-              </Pressable>
-            </View>
-          )
+            {!!bookingError && (
+              <View style={styles.errorBanner}>
+                <Text style={styles.errorBannerText}>{bookingError}</Text>
+              </View>
+            )}
+
+            <Pressable
+              style={[styles.confirmBtn, bookingLoading && styles.confirmBtnDisabled]}
+              onPress={() => void handleConfirmBooking()}
+              disabled={bookingLoading}
+            >
+              <Text style={styles.confirmBtnText}>{bookingLoading ? 'Reservando...' : 'Confirmar cita'}</Text>
+            </Pressable>
+          </View>
         ) : (
           <View style={styles.myAppointmentsContainer}>
             <View style={styles.filterRow}>
@@ -358,19 +346,24 @@ export default function AppointmentsScreen() {
             </View>
 
             {listLoading ? (
-              <LoadingState message="Cargando tus citas..." />
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyTitle}>Cargando tus citas...</Text>
+              </View>
             ) : listError ? (
-              <ErrorState
-                message={listError}
-                onRetry={() => {
-                  void refetchList();
-                }}
-              />
-            ) : listAppointments.length === 0 ? (
-              <EmptyState
-                title="No tienes citas en esta sección"
-                subtitle={
-                  listFilter === 'upcoming'
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>⚠️</Text>
+                <Text style={styles.emptyTitle}>No pudimos cargar tus citas</Text>
+                <Text style={styles.emptySub}>{listError}</Text>
+                <Pressable style={styles.emptyBtn} onPress={() => void loadList(listFilter)}>
+                  <Text style={styles.emptyBtnText}>Reintentar</Text>
+                </Pressable>
+              </View>
+            ) : appointments.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Text style={styles.emptyIcon}>💈</Text>
+                <Text style={styles.emptyTitle}>No tienes citas en esta sección</Text>
+                <Text style={styles.emptySub}>
+                  {listFilter === 'upcoming'
                     ? '¡Reserva tu turno para mantener tu estilo al día!'
                     : 'Aún no tienes historial de citas completadas.'
                 }
@@ -379,8 +372,9 @@ export default function AppointmentsScreen() {
               />
             ) : (
               <View style={styles.appointmentsList}>
-                {listAppointments.map((apt) => {
-                  const isConfirmed = apt.status === 'confirmed';
+                {appointments.map((apt) => {
+                  const isConfirmed = apt.status === 'CONFIRMED';
+                  const isCompleted = apt.status === 'COMPLETED';
 
                   return (
                     <View key={apt.id} style={styles.aptCard}>
@@ -389,37 +383,35 @@ export default function AppointmentsScreen() {
                           style={[
                             styles.statusBadge,
                             isConfirmed && { backgroundColor: COLORS.badgeSuccess },
-                            apt.status === 'completed' && { backgroundColor: COLORS.goldLight },
-                            apt.status === 'cancelled' && { backgroundColor: COLORS.badgeCancel },
+                            isCompleted && { backgroundColor: COLORS.goldLight },
+                            apt.status === 'CANCELLED' && { backgroundColor: COLORS.badgeCancel },
                           ]}
                         >
                           <Text
                             style={[
                               styles.statusText,
                               isConfirmed && { color: COLORS.badgeSuccessText },
-                              apt.status === 'completed' && { color: COLORS.gold },
-                              apt.status === 'cancelled' && { color: COLORS.badgeCancelText },
+                              isCompleted && { color: COLORS.gold },
+                              apt.status === 'CANCELLED' && { color: COLORS.badgeCancelText },
                             ]}
                           >
                             {statusLabel(apt.status).toUpperCase()}
                           </Text>
                         </View>
-                        <Text style={styles.aptPrice}>{formatPrice(apt.price_cop)}</Text>
+                        <Text style={styles.aptPrice}>{formatPrice(apt.price)}</Text>
                       </View>
 
-                      <Text style={styles.aptService}>{apt.service.name}</Text>
-                      <Text style={styles.aptShop}>📍 {apt.shop.name}</Text>
+                      <Text style={styles.aptService}>{apt.serviceName}</Text>
+                      <Text style={styles.aptShop}>📍 {apt.shop}</Text>
 
                       <View style={styles.aptDetailsRow}>
                         <View style={styles.aptDetailItem}>
                           <Text style={styles.aptDetailLabel}>Barbero</Text>
-                          <Text style={styles.aptDetailValue}>{apt.barber.name}</Text>
+                          <Text style={styles.aptDetailValue}>{apt.barberName}</Text>
                         </View>
                         <View style={styles.aptDetailItem}>
                           <Text style={styles.aptDetailLabel}>Fecha & Hora</Text>
-                          <Text style={styles.aptDetailValue}>
-                            {formatDate(apt.scheduled_at)} - {formatTime(apt.scheduled_at)}
-                          </Text>
+                          <Text style={styles.aptDetailValue}>{formatDate(apt.startAt)} - {formatTime(apt.startAt)}</Text>
                         </View>
                       </View>
 
@@ -614,6 +606,9 @@ function createStyles(colors: Colors) {
       borderWidth: 1,
       borderColor: colors.borderMuted,
     },
+    timeChipDisabled: {
+      opacity: 0.4,
+    },
     chipSelected: {
       backgroundColor: colors.secondary,
       borderColor: colors.secondary,
@@ -673,6 +668,21 @@ function createStyles(colors: Colors) {
       fontSize: 14,
       fontWeight: '700',
     },
+    errorBanner: {
+      backgroundColor: colors.errorBg,
+      borderWidth: 1,
+      borderColor: colors.errorBorder,
+      borderRadius: 8,
+      paddingVertical: 12,
+      paddingHorizontal: 14,
+      alignItems: 'center',
+    },
+    errorBannerText: {
+      color: colors.error,
+      fontSize: 13.5,
+      fontWeight: '600',
+      textAlign: 'center',
+    },
 
     confirmBtn: {
       backgroundColor: colors.primary,
@@ -682,7 +692,7 @@ function createStyles(colors: Colors) {
       marginTop: 8,
     },
     confirmBtnDisabled: {
-      opacity: 0.5,
+      opacity: 0.6,
     },
     confirmBtnText: {
       color: colors.textLight,

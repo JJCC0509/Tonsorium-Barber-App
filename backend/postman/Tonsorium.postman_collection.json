@@ -1,0 +1,827 @@
+{
+  "info": {
+    "name": "Tonsorium",
+    "_postman_id": "tonsorium-collection",
+    "description": "Colección de la API de Tonsorium Barber App (5 endpoints). Pensada para correrse con el Collection Runner de principio a fin y repetirse sin reiniciar el servidor.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "item": [
+    {
+      "name": "Auth",
+      "description": "Registro y login. Los requests usan No Auth.",
+      "item": [
+        {
+          "name": "Register OK",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Registra un usuario nuevo con un email único generado en el pre-request. Guarda el token en el environment.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Test User\",\n  \"email\": \"{{regEmail}}\",\n  \"phone\": \"+57 320 6107465\",\n  \"preferredShop\": \"Barber Chamos\",\n  \"password\": \"12345678\",\n  \"confirmPassword\": \"12345678\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var email = 'user' + Date.now() + '@mail.com';",
+                  "pm.environment.set('regEmail', email);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('Tiene token y user sin password', function () {",
+                  "  var json = pm.response.json();",
+                  "  pm.expect(json.token).to.be.a('string');",
+                  "  pm.expect(json.user).to.be.an('object');",
+                  "  pm.expect(json.user.email).to.eql(pm.environment.get('regEmail'));",
+                  "  pm.expect(json.user).to.not.have.property('passwordHash');",
+                  "  pm.expect(json.user).to.not.have.property('password');",
+                  "  pm.environment.set('token', json.token);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login demo OK",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Inicia sesión con el usuario demo y guarda el token en el environment.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{demoEmail}}\",\n  \"password\": \"{{demoPassword}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Tiene token y user demo', function () {",
+                  "  var json = pm.response.json();",
+                  "  pm.expect(json.token).to.be.a('string');",
+                  "  pm.expect(json.user.email).to.eql(pm.environment.get('demoEmail'));",
+                  "  pm.environment.set('token', json.token);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Appointments flujo feliz",
+      "description": "Flujo con el token demo: listar, crear, duplicar (409), cancelar y verificar historial. La cita creada se cancela para poder repetir la colección.",
+      "item": [
+        {
+          "name": "Listar proximas",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments?filter=upcoming",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"],
+              "query": [{ "key": "filter", "value": "upcoming" }]
+            },
+            "description": "Lista las citas próximas del usuario demo. Todas deben estar CONFIRMED e incluir el summary."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Todas CONFIRMED con summary', function () {",
+                  "  var json = pm.response.json();",
+                  "  pm.expect(json.items).to.be.an('array');",
+                  "  json.items.forEach(function (a) { pm.expect(a.status).to.eql('CONFIRMED'); });",
+                  "  pm.expect(json.summary).to.be.an('object');",
+                  "  pm.expect(json.summary.upcomingCount).to.be.a('number');",
+                  "  pm.expect(json.summary.completedCount).to.be.a('number');",
+                  "  pm.expect(json.summary.totalPoints).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar historial",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments?filter=history",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"],
+              "query": [{ "key": "filter", "value": "history" }]
+            },
+            "description": "Lista el historial (COMPLETED o CANCELLED) ordenado de más reciente a más antigua."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Historial válido y ordenado', function () {",
+                  "  var json = pm.response.json();",
+                  "  pm.expect(json.items).to.be.an('array');",
+                  "  var prev = null;",
+                  "  json.items.forEach(function (a) {",
+                  "    pm.expect(['COMPLETED', 'CANCELLED']).to.include(a.status);",
+                  "    var ms = Date.parse(a.startAt);",
+                  "    if (prev !== null) { pm.expect(ms).to.be.at.most(prev); }",
+                  "    prev = ms;",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar con limit=1",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments?limit=1",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"],
+              "query": [{ "key": "limit", "value": "1" }]
+            },
+            "description": "Devuelve un solo item pero el summary conserva los totales completos."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Un item y summary completo', function () {",
+                  "  var json = pm.response.json();",
+                  "  pm.expect(json.items.length).to.eql(1);",
+                  "  pm.expect(json.summary.upcomingCount).to.be.a('number');",
+                  "  pm.expect(json.summary.totalPoints).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear cita",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"]
+            },
+            "description": "Crea una cita futura en hora de Bogotá con fecha y horario aleatorios. Guarda el appointmentId.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"s1\",\n  \"barberId\": \"b2\",\n  \"date\": \"{{apptDate}}\",\n  \"time\": \"{{apptTime}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var dias = 2 + Math.floor(Math.random() * 24);",
+                  "var date = new Date(Date.now() - 5*3600*1000 + dias*86400000).toISOString().slice(0,10);",
+                  "var times = ['10:00', '11:30', '14:00', '16:30', '18:00', '19:15'];",
+                  "var time = times[Math.floor(Math.random() * times.length)];",
+                  "pm.environment.set('apptDate', date);",
+                  "pm.environment.set('apptTime', time);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 201', function () { pm.response.to.have.status(201); });",
+                  "pm.test('Cita CONFIRMED con endAt correcto', function () {",
+                  "  var json = pm.response.json();",
+                  "  pm.expect(json.status).to.eql('CONFIRMED');",
+                  "  pm.expect(json.startAt).to.be.a('string');",
+                  "  var expectedEnd = Date.parse(json.startAt) + json.durationMinutes * 60000;",
+                  "  pm.expect(Date.parse(json.endAt)).to.eql(expectedEnd);",
+                  "  pm.environment.set('appointmentId', json.id);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear la misma cita otra vez",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"]
+            },
+            "description": "Repite la misma fecha, hora y barbero. Debe fallar con 409 SLOT_TAKEN.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"s1\",\n  \"barberId\": \"b2\",\n  \"date\": \"{{apptDate}}\",\n  \"time\": \"{{apptTime}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 409', function () { pm.response.to.have.status(409); });",
+                  "pm.test('Code SLOT_TAKEN', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('SLOT_TAKEN');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar proximas contiene cita",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments?filter=upcoming",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"],
+              "query": [{ "key": "filter", "value": "upcoming" }]
+            },
+            "description": "Verifica que la cita creada aparece en las próximas citas."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Contiene appointmentId', function () {",
+                  "  var json = pm.response.json();",
+                  "  var ids = json.items.map(function (a) { return a.id; });",
+                  "  pm.expect(ids).to.include(pm.environment.get('appointmentId'));",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancelar cita",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments/{{appointmentId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments", "{{appointmentId}}", "cancel"]
+            },
+            "description": "Cancela la cita creada. Libera el horario para repetir la colección."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Status CANCELLED', function () {",
+                  "  pm.expect(pm.response.json().status).to.eql('CANCELLED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancelar otra vez",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments/{{appointmentId}}/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments", "{{appointmentId}}", "cancel"]
+            },
+            "description": "Cancelar una cita ya cancelada debe fallar con 422 INVALID_STATUS_TRANSITION."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', function () { pm.response.to.have.status(422); });",
+                  "pm.test('Code INVALID_STATUS_TRANSITION', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('INVALID_STATUS_TRANSITION');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar historial contiene cita",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments?filter=history",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"],
+              "query": [{ "key": "filter", "value": "history" }]
+            },
+            "description": "Verifica que la cita cancelada aparece en el historial como CANCELLED."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('Contiene appointmentId cancelada', function () {",
+                  "  var json = pm.response.json();",
+                  "  var found = json.items.filter(function (a) { return a.id === pm.environment.get('appointmentId'); });",
+                  "  pm.expect(found.length).to.eql(1);",
+                  "  pm.expect(found[0].status).to.eql('CANCELLED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Casos de error",
+      "description": "Validaciones y errores de autenticación, formato y negocio.",
+      "item": [
+        {
+          "name": "Register contrasenas distintas",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Las contraseñas no coinciden. Espera 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Test User\",\n  \"email\": \"mismatch@mail.com\",\n  \"preferredShop\": \"Barber Chamos\",\n  \"password\": \"12345678\",\n  \"confirmPassword\": \"87654321\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register contrasena corta",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Contraseña de menos de 8 caracteres. Espera 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Test User\",\n  \"email\": \"short@mail.com\",\n  \"preferredShop\": \"Barber Chamos\",\n  \"password\": \"123\",\n  \"confirmPassword\": \"123\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Register email demo",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/auth/register",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "register"]
+            },
+            "description": "Email ya registrado. Espera 409 EMAIL_ALREADY_REGISTERED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"fullName\": \"Demo Tonsorium\",\n  \"email\": \"{{demoEmail}}\",\n  \"preferredShop\": \"Barber Chamos\",\n  \"password\": \"12345678\",\n  \"confirmPassword\": \"12345678\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 409', function () { pm.response.to.have.status(409); });",
+                  "pm.test('Code EMAIL_ALREADY_REGISTERED', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('EMAIL_ALREADY_REGISTERED');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login contrasena incorrecta",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Contraseña incorrecta. Espera 401 INVALID_CREDENTIALS.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{demoEmail}}\",\n  \"password\": \"WrongPassword1\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', function () { pm.response.to.have.status(401); });",
+                  "pm.test('Code INVALID_CREDENTIALS', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('INVALID_CREDENTIALS');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Login sin body completo",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/auth/login",
+              "host": ["{{baseUrl}}"],
+              "path": ["auth", "login"]
+            },
+            "description": "Falta la contraseña. Espera 400.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"{{demoEmail}}\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 400', function () { pm.response.to.have.status(400); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar sin token",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"]
+            },
+            "description": "Sin header Authorization. Espera 401 MISSING_TOKEN."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', function () { pm.response.to.have.status(401); });",
+                  "pm.test('Code MISSING_TOKEN', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('MISSING_TOKEN');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Listar con token invalido",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [{ "key": "Authorization", "value": "Bearer invalid-token-123" }],
+            "url": {
+              "raw": "{{baseUrl}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"]
+            },
+            "description": "Token con firma inválida. Espera 401 INVALID_TOKEN."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 401', function () { pm.response.to.have.status(401); });",
+                  "pm.test('Code INVALID_TOKEN', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('INVALID_TOKEN');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear fecha pasada",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"]
+            },
+            "description": "Fecha en el pasado. Espera 422 PAST_DATE.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"s1\",\n  \"barberId\": \"b1\",\n  \"date\": \"2020-01-01\",\n  \"time\": \"10:00\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', function () { pm.response.to.have.status(422); });",
+                  "pm.test('Code PAST_DATE', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('PAST_DATE');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear fuera de horario",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"]
+            },
+            "description": "Cita a las 22:00 de mañana. Espera 422 OUTSIDE_WORKING_HOURS.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"s1\",\n  \"barberId\": \"b1\",\n  \"date\": \"{{tomorrowDate}}\",\n  \"time\": \"22:00\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "var tomorrow = new Date(Date.now() - 5*3600*1000 + 86400000).toISOString().slice(0,10);",
+                  "pm.environment.set('tomorrowDate', tomorrow);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 422', function () { pm.response.to.have.status(422); });",
+                  "pm.test('Code OUTSIDE_WORKING_HOURS', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('OUTSIDE_WORKING_HOURS');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear servicio inexistente",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"]
+            },
+            "description": "serviceId que no existe. Espera 404 SERVICE_NOT_FOUND.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"s999\",\n  \"barberId\": \"b1\",\n  \"date\": \"{{tomorrowDate}}\",\n  \"time\": \"10:00\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', function () { pm.response.to.have.status(404); });",
+                  "pm.test('Code SERVICE_NOT_FOUND', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('SERVICE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Crear barbero inexistente",
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/appointments",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments"]
+            },
+            "description": "barberId que no existe. Espera 404 BARBER_NOT_FOUND.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"serviceId\": \"s1\",\n  \"barberId\": \"b999\",\n  \"date\": \"{{tomorrowDate}}\",\n  \"time\": \"10:00\"\n}",
+              "options": { "raw": { "language": "json" } }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', function () { pm.response.to.have.status(404); });",
+                  "pm.test('Code BARBER_NOT_FOUND', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('BARBER_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Cancelar id inexistente",
+          "request": {
+            "method": "PATCH",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/appointments/apt-999999/cancel",
+              "host": ["{{baseUrl}}"],
+              "path": ["appointments", "apt-999999", "cancel"]
+            },
+            "description": "Cancela un id que no existe. Espera 404 APPOINTMENT_NOT_FOUND."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', function () { pm.response.to.have.status(404); });",
+                  "pm.test('Code APPOINTMENT_NOT_FOUND', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('APPOINTMENT_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Ruta inexistente",
+          "request": {
+            "auth": { "type": "noauth" },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/foo",
+              "host": ["{{baseUrl}}"],
+              "path": ["foo"]
+            },
+            "description": "Ruta que no existe. Espera 404 ROUTE_NOT_FOUND."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Status 404', function () { pm.response.to.have.status(404); });",
+                  "pm.test('Code ROUTE_NOT_FOUND', function () {",
+                  "  pm.expect(pm.response.json().code).to.eql('ROUTE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

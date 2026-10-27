@@ -1,25 +1,34 @@
+// Configuración de entorno tipada. El servidor no arranca sin JWT_SECRET válido.
 import dotenv from 'dotenv';
-import { z } from 'zod';
 
 dotenv.config();
 
-const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  PORT: z.coerce.number().int().positive().default(4000),
-  SUPABASE_URL: z.string().url('SUPABASE_URL debe ser una URL válida (https://<proyecto>.supabase.co).'),
-  SUPABASE_SERVICE_ROLE_KEY: z.string().min(1, 'SUPABASE_SERVICE_ROLE_KEY es obligatorio.'),
-  JWT_SECRET: z.string().min(32, 'JWT_SECRET debe tener al menos 32 caracteres.'),
-  ALLOWED_ORIGINS: z.string().default('*'),
-});
-
-const parsed = envSchema.safeParse(process.env);
-
-if (!parsed.success) {
-  console.error('Configuracion de entorno invalida. Revisa tu archivo .env (ver .env.example):');
-  console.error(parsed.error.flatten().fieldErrors);
-  process.exit(1);
+function requireJwtSecret(): string {
+  const secret = process.env.JWT_SECRET ?? '';
+  if (secret.length < 32) {
+    throw new Error('JWT_SECRET es obligatorio y debe tener mínimo 32 caracteres.');
+  }
+  return secret;
 }
 
-export const env = parsed.data;
+function toNumber(value: string | undefined, fallback: number): number {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
-export type Env = typeof env;
+const nodeEnv = process.env.NODE_ENV ?? 'development';
+
+export const env = {
+  nodeEnv,
+  isProduction: nodeEnv === 'production',
+  port: toNumber(process.env.PORT, 3000),
+  jwtSecret: requireJwtSecret(),
+  corsOrigin: process.env.CORS_ORIGIN ?? '*',
+  // Por defecto 1000 en desarrollo (para no bloquear Postman) y 10 en producción.
+  authRateLimitMax: process.env.AUTH_RATE_LIMIT_MAX
+    ? toNumber(process.env.AUTH_RATE_LIMIT_MAX, 1000)
+    : nodeEnv === 'production'
+      ? 10
+      : 1000,
+  logLevel: process.env.LOG_LEVEL ?? 'info',
+};

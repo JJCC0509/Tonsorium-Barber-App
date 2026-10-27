@@ -1,176 +1,201 @@
-# Tonsorium Barber App — Backend REST
+# Tonsorium API
 
-Backend propio del proyecto académico **Tonsorium Barber App**. Expone **5 rutas de recurso** con **9 operaciones HTTP** sobre una base de datos real en **Supabase (PostgreSQL)**.
-
-- Node.js 22 LTS + **Express 5** + **TypeScript** (strict, CommonJS)
-- `@supabase/supabase-js` v2 con la clave **`service_role`** (solo en el servidor)
-- Autenticación propia con **JWT** (`jsonwebtoken`) y contraseñas con **bcryptjs**
-- Validación de todas las entradas con **Zod**
-
-> La app móvil **nunca** ve credenciales de base de datos: solo habla con esta API por HTTPS/JSON.
-
----
+Backend de **Tonsorium Barber App**: API REST con exactamente 5 endpoints, datos en memoria y autenticación con JWT.
 
 ## Requisitos
 
-- **Node.js 22** (`engines` fija `22.x` para que el proveedor de hosting no elija una versión mayor con `tsc` incompatible)
-- **npm** 10+
-- Un proyecto de **Supabase** con el esquema aplicado y el seed cargado
-- (Opcional) **Supabase CLI** para aplicar migraciones con `supabase db push`
-
----
+- Node.js 22 o superior (recomendado 24+).
+- npm.
 
 ## Instalación
 
-```powershell
-cd C:\Users\Admin\Desktop\Tonsorium-Barber-App\backend
+```bash
+cd backend
 npm install
-Copy-Item .env.example .env
-# Edita .env y completa SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY y JWT_SECRET
+cp .env.example .env
 ```
 
-### Variables de entorno
+Genera un `JWT_SECRET` propio de mínimo 32 caracteres (nunca uses el de ejemplo en producción):
 
-Todas se validan con Zod al arrancar (`src/config/env.ts`); si falta alguna o no es válida, **el proceso se detiene** con un mensaje claro. Referencia completa en [`.env.example`](./.env.example).
-
-| Variable | Descripción |
-|---|---|
-| `SUPABASE_URL` | *Project URL* de Supabase → `Project Settings → API`. |
-| `SUPABASE_SERVICE_ROLE_KEY` | *service_role secret*. **Secreto de servidor: nunca en la app ni en Git.** |
-| `JWT_SECRET` | Firma de los JWT. **Mínimo 32 caracteres.** |
-| `PORT` | Puerto HTTP (por defecto `4000`). |
-| `ALLOWED_ORIGINS` | Orígenes permitidos por CORS separados por coma; `*` solo en desarrollo. |
-| `NODE_ENV` | `development` \| `test` \| `production` (por defecto `development`). |
-
-**Generar un `JWT_SECRET` seguro:**
-
-```powershell
-node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```bash
+node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
 ```
 
----
+## Ejecución
 
-## Comandos
+Desarrollo (recarga automática):
 
-| Comando | Descripción |
-|---|---|
-| `npm run dev` | Servidor en modo desarrollo con recarga (`tsx watch src/index.ts`). |
-| `npm run build` | Compila TypeScript a `dist/`. |
-| `npm start` | Ejecuta la compilación (`node dist/index.js`). |
-| `npm run typecheck` | Verificación de tipos sin emitir (`tsc --noEmit`). |
-| `npm run db:seed` | Carga datos de prueba **idempotentes** (catálogo + usuario demo + citas). |
-
----
-
-## Base de datos
-
-Las migraciones viven en `supabase/migrations/` y **ya están escritas**:
-
-- `001_init_schema.sql` — 5 tablas (`shops`, `barbers`, `services`, `users`, `appointments`), índice único parcial anti-doble-reserva, `updated_at` automático y **RLS habilitado sin políticas**.
-- `002_points_and_stats.sql` — trigger de puntos (25 por cita completada) y función `public.get_user_stats(uuid)`.
-- `003_service_role_grants.sql` — **imprescindible**: Supabase ya no concede privilegios automáticos a las tablas nuevas de `public`. Sin estos `GRANT` a `service_role`, la API responde `permission denied` aunque use la service_role key (`BYPASSRLS` omite el filtrado por filas, pero **no** los permisos).
-
-Aplicarlas (con Supabase CLI ya vinculado):
-
-```powershell
-supabase link --project-ref <PROJECT_REF>
-supabase db push
+```bash
+npm run dev
 ```
 
-Alternativa sin CLI: pegar el contenido de ambos archivos en el *SQL Editor* de Supabase y ejecutarlos en orden.
+Producción:
 
-Cargar los datos de prueba:
-
-```powershell
-npm run db:seed
+```bash
+npm run build
+npm start
 ```
 
-Resultado esperado: 3 `shops`, 3 `barbers`, 4 `services`, 1 `users` y 13 `appointments` (1 `confirmed` futura + 12 `completed`), con `get_user_stats` devolviendo `cuts_done = 12`, `points = 300`, `rating = 4.9`.
+Al arrancar verás la URL base y el usuario demo disponible. El servidor escucha en `0.0.0.0` para que el celular acceda por la IP de la red local.
 
-**Usuario demo:** `carlos@tonsorium.test` / `Tonsorium2026*`
+```text
+Tonsorium API escuchando en http://0.0.0.0:3000/api/v1
+Usuario demo disponible: demo@tonsorium.com / Demo12345
+```
 
----
+Variables de entorno (ver `.env.example`):
 
-## Endpoints
+| Variable | Defecto | Descripción |
+| --- | --- | --- |
+| `NODE_ENV` | `development` | `development` o `production`. |
+| `PORT` | `3000` | Puerto de escucha. |
+| `JWT_SECRET` | (obligatorio) | Secreto de firma, mínimo 32 caracteres. Sin él no arranca. |
+| `CORS_ORIGIN` | `*` | Origen CORS permitido. |
+| `AUTH_RATE_LIMIT_MAX` | `1000` dev / `10` prod | Máximo de peticiones a `/auth/*` por 15 min. |
+| `LOG_LEVEL` | `info` | Nivel de log. |
 
-Base: `/api/v1`. Autenticación: cabecera `Authorization: Bearer <jwt>`.
+## Endpoints (base `/api/v1`, JSON)
 
-Formato de error uniforme:
+### 1) `POST /auth/register` (público, con rate limit) → `201`
+
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/register \
+  -H 'Content-Type: application/json' \
+  -d '{"fullName":"Carlos Mendoza","email":"carlos@mail.com","phone":"+57 320 6107465","preferredShop":"Barber Chamos","password":"12345678","confirmPassword":"12345678"}'
+```
+
+Respuesta:
 
 ```json
-{ "error": { "code": "STRING_CODE", "message": "texto legible", "details": [] } }
+{ "token": "<jwt>", "user": { "id": "usr-2", "fullName": "Carlos Mendoza", "firstName": "Carlos", "email": "carlos@mail.com", "phone": "+57 320 6107465", "preferredShop": "Barber Chamos" } }
 ```
 
-| # | Ruta | Operación | Auth | Propósito |
-|---|---|---|---|---|
-| 1 | `/auth/register` | `POST` | No | Crear cuenta real y persistente |
-| 2 | `/auth/login` | `POST` | No | Validar credenciales y emitir JWT |
-| 3 | `/me` | `GET` | Sí | Leer perfil + `preferred_shop` + `stats` (RPC `get_user_stats`) |
-| 3 | `/me` | `PUT` | Sí | Editar nombre, teléfono, barbería habitual, estilo y notificaciones |
-| 4 | `/catalog` | `GET` | No | Barberías, barberos y servicios activos (sin caché) |
-| 5 | `/appointments` | `GET` | Sí | Citas propias: `?status=upcoming\|history` |
-| 5 | `/appointments` | `POST` | Sí | Reservar (precio y tienda derivados en el servidor) |
-| 5 | `/appointments/:id/cancel` | `PATCH` | Sí | Cancelar una cita propia |
-| — | `/health` | `GET` | No | Infraestructura: verifica la conexión real a Supabase (no cuenta como endpoint de negocio) |
+### 2) `POST /auth/login` (público, con rate limit) → `200`
 
-**Total: 5 rutas de recurso → 9 operaciones HTTP** (+ `/health`).
+```bash
+curl -X POST http://localhost:3000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo@tonsorium.com","password":"Demo12345","remember":false}'
+```
 
-### Códigos de error
+El JWT expira en `30d` si `remember` es `true` y en `1d` si no. Los errores responden `{ "code", "message" }` con el mensaje en español.
+
+### 3) `GET /appointments` (requiere `Authorization: Bearer <token>`) → `200`
+
+Query opcional: `filter=upcoming|history`, `limit` (entero positivo).
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:3000/api/v1/auth/login \
+  -H 'Content-Type: application/json' \
+  -d '{"email":"demo@tonsorium.com","password":"Demo12345"}' | node -e "let d='';process.stdin.on('data',c=>d+=c).on('end',()=>console.log(JSON.parse(d).token))")
+curl "http://localhost:3000/api/v1/appointments?filter=upcoming" -H "Authorization: Bearer $TOKEN"
+```
+
+Respuesta:
+
+```json
+{
+  "items": [
+    {
+      "id": "apt-1", "serviceId": "s3", "serviceName": "Combo (Corte + Barba)",
+      "barberId": "b1", "barberName": "El Chamo", "shop": "Barber Chamos",
+      "price": 20000, "durationMinutes": 50,
+      "startAt": "2026-10-18T16:30:00-05:00", "endAt": "2026-10-18T17:20:00-05:00",
+      "status": "CONFIRMED", "accumulate": 0
+    }
+  ],
+  "summary": { "upcomingCount": 1, "completedCount": 2, "totalPoints": 40 }
+}
+```
+
+`summary` se calcula siempre sobre todas las citas del usuario. `upcoming` = `CONFIRMED` (asc), `history` = `COMPLETED` o `CANCELLED` (desc).
+
+### 4) `POST /appointments` (requiere token) → `201`
+
+`date` es `YYYY-MM-DD` y `time` es `HH:mm` (24 h) en **America/Bogotá (UTC-5)**.
+
+```bash
+curl -X POST http://localhost:3000/api/v1/appointments \
+  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -d '{"serviceId":"s1","barberId":"b2","date":"2026-10-20","time":"10:00"}'
+```
+
+### 5) `PATCH /appointments/:id/cancel` (requiere token, sin body) → `200`
+
+```bash
+curl -X PATCH http://localhost:3000/api/v1/appointments/apt-1/cancel \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Cualquier otra ruta responde `404 { "code": "ROUTE_NOT_FOUND", ... }`. La API expone solo estos 5 endpoints; el catálogo de servicios y barberos no se expone por API.
+
+## Reglas de negocio
+
+- `date` + `time` se interpretan en **America/Bogotá (UTC-5)**; `startAt` se guarda en ISO 8601 con offset `-05:00` y `endAt = startAt + durationMinutes`.
+- Orden de validación al crear: formato del body (`400`) → servicio existente (`404 SERVICE_NOT_FOUND`) → barbero existente (`404 BARBER_NOT_FOUND`) → fecha no pasada (`422 PAST_DATE`) → máximo 30 días adelante (`422 TOO_FAR_IN_FUTURE`) → horario laboral 09:00–21:00 (`422 OUTSIDE_WORKING_HOURS`) → sin traslape con otra cita no cancelada del mismo barbero (`409 SLOT_TAKEN`).
+- La cita nace `CONFIRMED` con el precio del catálogo. El `price` es una foto al momento de reservar: las citas semilla conservan sus precios originales aunque difieran del catálogo.
+- **Completado automático**: antes de listar o crear, las citas `CONFIRMED` cuyo `endAt` ya pasó se marcan `COMPLETED` con `accumulate = Math.floor(price / 1000)` (1 punto por cada $1.000). `totalPoints` suma los `accumulate`.
+- IDs: citas `apt-<n>`, usuarios `usr-<n>`.
+- El email se normaliza a minúsculas y es único. Contraseñas con `bcryptjs` (cost 10). JWT con `sub` = id de usuario.
+- Rate limit solo en `/auth/*`: 1000 por 15 min en desarrollo, 10 en producción (`429 TOO_MANY_REQUESTS`).
+
+## Tabla de errores (`{ "code", "message" }`, mensajes en español)
 
 | Código | HTTP | Cuándo |
-|---|---|---|
-| `VALIDATION_ERROR` | 400 | Entrada inválida (Zod), incluido el cuerpo vacío en `PUT /me`. |
-| `INVALID_SCHEDULE` | 400 | `scheduled_at` en el pasado. |
-| `CANNOT_CANCEL_COMPLETED` | 400 | Intentar cancelar una cita completada. |
-| `UNAUTHORIZED` | 401 | Token ausente, inválido o expirado. |
-| `INVALID_CREDENTIALS` | 401 | Correo o contraseña incorrectos (mismo mensaje en ambos casos). |
-| `NOT_FOUND` | 404 | Recurso inexistente o inactivo (barbero, servicio, barbería, cita ajena). |
-| `EMAIL_TAKEN` | 409 | El correo ya está registrado. |
-| `SLOT_TAKEN` | 409 | Doble reserva del mismo barbero a la misma hora. |
-| `ALREADY_CANCELLED` | 409 | La cita ya estaba cancelada. |
-| `RATE_LIMITED` | 429 | Más de 10 intentos en 15 min en `/auth/*`. |
-| `INTERNAL_ERROR` | 500 | Error inesperado del servidor. |
+| --- | --- | --- |
+| `VALIDATION_ERROR` | 400 | Datos inválidos (registro, login incompleto, filtro o `limit` inválidos, formato de cita). |
+| `EMAIL_ALREADY_REGISTERED` | 409 | Email ya registrado. |
+| `INVALID_CREDENTIALS` | 401 | Email inexistente o contraseña incorrecta (mismo mensaje). |
+| `MISSING_TOKEN` | 401 | Falta `Authorization: Bearer <token>`. |
+| `INVALID_TOKEN` | 401 | Token con firma inválida. |
+| `TOKEN_EXPIRED` | 401 | Token vencido. |
+| `SERVICE_NOT_FOUND` | 404 | `serviceId` inexistente. |
+| `BARBER_NOT_FOUND` | 404 | `barberId` inexistente. |
+| `PAST_DATE` | 422 | Fecha/hora en el pasado. |
+| `TOO_FAR_IN_FUTURE` | 422 | Más de 30 días adelante. |
+| `OUTSIDE_WORKING_HOURS` | 422 | Fuera de 09:00–21:00. |
+| `SLOT_TAKEN` | 409 | Traslape con otra cita no cancelada del mismo barbero. |
+| `APPOINTMENT_NOT_FOUND` | 404 | La cita no existe o no es del usuario. |
+| `INVALID_STATUS_TRANSITION` | 422 | La cita ya no se puede cancelar. |
+| `TOO_MANY_REQUESTS` | 429 | Rate limit de `/auth/*`. |
+| `ROUTE_NOT_FOUND` | 404 | Ruta inexistente. |
+| `INTERNAL_SERVER_ERROR` | 500 | Error inesperado. |
 
-### Pruebas
+## Guía de Postman
 
-`api.http` contiene una petición por operación (casos felices y de error). Se puede usar con la extensión **REST Client** de VS Code o importar en Postman/Insomnia. Recuerda completar las variables `@token`, `@shopId`, `@barberId`, `@serviceId` y `@appointmentId` con los valores reales.
+Archivos en `postman/`:
 
----
+- `Tonsorium.postman_collection.json` (Collection v2.1, 3 carpetas, 24 requests en orden).
+- `Tonsorium.postman_environment.json` (`baseUrl`, `token`, `appointmentId`, `demoEmail`, `demoPassword`).
 
-## Despliegue
+### Importar
 
-El backend debe ser accesible por Internet para que el APK funcione en un teléfono real.
+1. Abre Postman → **Import** → arrastra los dos archivos (o **File → Import**).
+2. Abajo a la derecha selecciona el environment **Tonsorium**.
+3. Levanta la API (`npm run dev`) con el `.env` configurado.
 
-### URL pública actual
+### Correr request por request
 
-```
-https://tonsorium-api.onrender.com/api/v1
-```
+1. Ejecuta primero **Auth → Register OK** (el pre-request genera un email único) y luego **Login demo OK** (guarda `token`).
+2. Sigue con **Appointments flujo feliz** en orden: cada test verifica status, forma del JSON y valores clave; tras crear se guarda `appointmentId` y al cancelar se libera el horario.
+3. **Casos de error** verifica cada código de error de la tabla.
 
-Verificación: <https://tonsorium-api.onrender.com/api/v1/health> → `{"status":"ok","db":"ok","timestamp":"..."}`
+### Correr todo con el Collection Runner
 
-> Plan gratuito de Render: el servicio se suspende tras 15 minutos sin tráfico y la primera petición tarda entre 20 y 50 s en despertarlo (medido: 24,12 s sobre `/health`). Ese tiempo supera el timeout de 15 s del cliente, así que la app muestra la pantalla de **Reintentar** en lugar de expulsar al usuario al Login; al pulsar el botón el servicio ya está despierto y la sesión continúa intacta.
+1. Abre la colección → **Run** (Collection Runner).
+2. Selecciona el environment **Tonsorium** y deja el orden por defecto.
+3. Pulsa **Run Tonsorium**. Todos los tests deben pasar en verde.
+4. Puedes pulsar **Run** de nuevo sin reiniciar el servidor: el flujo crea emails únicos y cancela la cita creada, así que la segunda vuelta también pasa.
 
-### Despliegue reproducible (Render Blueprint)
+### Leer los resultados
 
-`render.yaml`, en la raíz del repositorio, describe el servicio completo:
+- Cada request incluye `pm.test(...)`: en el Runner verás por request cuántos tests pasaron/fallaron y el detalle de cada aserción.
+- Si un test falla, revisa **Response Body** (debe ser `{ "code", "message" }` en errores) y las variables del environment (`token`, `appointmentId`, `apptDate`, `apptTime`).
 
-1. Crea una cuenta en <https://dashboard.render.com/register> (con GitHub).
-2. **New +** → **Blueprint** → elige el repositorio y la rama.
-3. Render pide los tres valores marcados con `sync: false` en el blueprint: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` y `JWT_SECRET`. Cópialos de `backend\.env`.
-4. **Apply** y esperar el build.
+## Probar desde el celular (`EXPO_PUBLIC_API_URL`)
 
-### Despliegue manual (alternativa)
+La app Expo lee `EXPO_PUBLIC_API_URL` (ver `.env.example` de la app):
 
-Crea un **Web Service** apuntando a la carpeta `backend/`:
-
-- **Build Command:** `npm ci --include=dev && npm run build`
-- **Start Command:** `npm start`
-- **Runtime / Node version:** 22
-
-### Dos trampas reales encontradas en el despliegue
-
-1. **npm omite las devDependencies.** Si el servicio define `NODE_ENV=production`, `npm ci` no instala `typescript` ni `@types/node` y el build falla con `TS2688 Cannot find type definition file for 'node'`. Por eso el `buildCommand` lleva `--include=dev` **y** existe `backend/.npmrc` con `include=dev` (verificado: con `NODE_ENV=production`, `npm config get omit` pasa de `[dev]` a `[]`).
-2. **`engines.node` debe fijarse.** Con `>=22`, Render instaló Node 26 y su `tsc` rechazaba `moduleResolution: Node` con `TS5108 ... has been removed`. Fijar `"node": "22.x"` garantiza el `tsc 5.9.3` del `package-lock.json`.
-
-> **Nota de seguridad:** la `service_role` key se configura **solo** en `backend\.env` y en el panel del proveedor. Nunca en la app móvil, nunca en Git.
+- Celular físico: usa la IP de la red local del computador, por ejemplo `http://192.168.1.10:3000/api/v1` (el backend escucha en `0.0.0.0`).
+- Emulador Android: usa `http://10.0.2.2:3000/api/v1`.
+- No uses `localhost`: en el celular apunta al propio teléfono, no al computador.
