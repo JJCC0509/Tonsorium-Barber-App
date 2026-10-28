@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { phoneSchema } from '../../lib/phone';
 
 const passwordSchema = z
   .string()
@@ -7,10 +8,15 @@ const passwordSchema = z
   .regex(/[0-9]/, 'La contrasena debe incluir al menos un numero.');
 
 export const registerSchema = z.object({
-  full_name: z.string().trim().min(3, 'El nombre debe tener al menos 3 caracteres.'),
+  full_name: z
+    .string()
+    .trim()
+    .min(3, 'El nombre debe tener al menos 3 caracteres.')
+    .max(80, 'El nombre no puede pasar de 80 caracteres.')
+    .regex(/[A-Za-zÀ-ÿ]/, 'El nombre debe incluir al menos una letra.'),
   email: z.string().trim().email('El correo electronico no es valido.'),
   password: passwordSchema,
-  phone: z.string().trim().min(1, 'El telefono no puede estar vacio.').optional(),
+  phone: phoneSchema.optional(),
   preferred_shop_id: z.string().uuid('El identificador de barberia no es valido.').optional(),
 });
 

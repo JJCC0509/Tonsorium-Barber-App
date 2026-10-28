@@ -15,6 +15,7 @@ import { useAuth } from '../context/AuthContext';
 import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
+import { validateEmail } from '../utils/validation';
 
 export default function LoginScreen() {
   const navigation = useNavigation<NavigationProp<'Login'>>();
@@ -31,8 +32,14 @@ export default function LoginScreen() {
   const handleSubmit = async () => {
     setError('');
 
-    if (!email || !password) {
-      setError('Completa tu correo y tu contraseña para continuar.');
+    const emailError = validateEmail(email);
+    if (emailError) {
+      setError(emailError);
+      return;
+    }
+
+    if (password.length === 0) {
+      setError('Escribe tu contraseña para continuar.');
       return;
     }
 

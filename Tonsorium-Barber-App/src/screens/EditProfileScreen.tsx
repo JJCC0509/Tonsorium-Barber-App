@@ -18,6 +18,11 @@ import { useCatalog } from '../hooks/useCatalog';
 import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
+import {
+  validateFavoriteStyle,
+  validateFullName,
+  validatePhone,
+} from '../utils/validation';
 
 export default function EditProfileScreen() {
   const navigation = useNavigation<NavigationProp<'EditProfile'>>();
@@ -57,8 +62,21 @@ export default function EditProfileScreen() {
   const handleSave = async () => {
     setError('');
 
-    if (fullName.trim().length < 3) {
-      setError('El nombre debe tener al menos 3 caracteres.');
+    const nameError = validateFullName(fullName);
+    if (nameError) {
+      setError(nameError);
+      return;
+    }
+
+    const phoneError = validatePhone(phone);
+    if (phoneError) {
+      setError(phoneError);
+      return;
+    }
+
+    const styleError = validateFavoriteStyle(favoriteStyle);
+    if (styleError) {
+      setError(styleError);
       return;
     }
 

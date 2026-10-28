@@ -16,6 +16,12 @@ import { useCatalog } from '../hooks/useCatalog';
 import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
+import {
+  validateEmail,
+  validateFullName,
+  validatePassword,
+  validatePhone,
+} from '../utils/validation';
 
 export default function RegisterScreen() {
   const navigation = useNavigation<NavigationProp<'Register'>>();
@@ -43,23 +49,32 @@ export default function RegisterScreen() {
   const handleRegister = async () => {
     setError('');
 
-    if (!fullName.trim() || !email.trim() || !password || !confirmPassword) {
-      setError('Por favor completa los campos obligatorios para registrarte.');
+    const nameError = validateFullName(fullName);
+    if (nameError) {
+      setError(nameError);
       return;
     }
 
-    if (fullName.trim().length < 3) {
-      setError('El nombre debe tener al menos 3 caracteres.');
+    const emailError = validateEmail(email);
+    if (emailError) {
+      setError(emailError);
       return;
     }
 
-    if (password.length < 8) {
-      setError('La contraseña debe tener mínimo 8 caracteres.');
+    const phoneError = validatePhone(phone);
+    if (phoneError) {
+      setError(phoneError);
       return;
     }
 
-    if (!/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) {
-      setError('La contraseña debe incluir al menos una letra y un número.');
+    const passwordError = validatePassword(password);
+    if (passwordError) {
+      setError(passwordError);
+      return;
+    }
+
+    if (confirmPassword.length === 0) {
+      setError('Confirma tu contraseña repitiéndola en el segundo campo.');
       return;
     }
 

@@ -13,13 +13,12 @@ import {
 import { useNavigation } from '@react-navigation/native';
 import { LoadingState } from '../components/StateViews';
 import { useAuth } from '../context/AuthContext';
-import { toErrorMessage } from '../services/apiClient';
 import { COLORS, Colors } from '../styles/colors';
 import { NavigationProp } from '../types/navigation';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NavigationProp<'Profile'>>();
-  const { me, signOut, refreshMe, updateProfile } = useAuth();
+  const { me, signOut, refreshMe } = useAuth();
   const styles = createStyles(COLORS);
 
   // Los puntos y los cortes los calcula la base de datos: se vuelven a pedir
@@ -48,14 +47,6 @@ export default function ProfileScreen() {
 
   const handleLogout = () => {
     void signOut();
-  };
-
-  const handleToggleNotifications = async () => {
-    try {
-      await updateProfile({ notifications_enabled: !user.notifications_enabled });
-    } catch (err) {
-      Alert.alert('No se pudo actualizar', toErrorMessage(err));
-    }
   };
 
   const handleAbout = () => {
@@ -145,19 +136,6 @@ export default function ProfileScreen() {
             <View style={styles.menuContent}>
               <Text style={styles.menuTitle}>Historial de Citas</Text>
               <Text style={styles.menuSub}>Consulta cortes anteriores</Text>
-            </View>
-            <Text style={styles.menuArrow}>›</Text>
-          </Pressable>
-
-          <View style={styles.menuDivider} />
-
-          <Pressable style={styles.menuItem} onPress={handleToggleNotifications}>
-            <Text style={styles.menuIcon}>🔔</Text>
-            <View style={styles.menuContent}>
-              <Text style={styles.menuTitle}>Recordatorios & Notificaciones</Text>
-              <Text style={styles.menuSub}>
-                {user.notifications_enabled ? 'Activadas' : 'Desactivadas'}
-              </Text>
             </View>
             <Text style={styles.menuArrow}>›</Text>
           </Pressable>

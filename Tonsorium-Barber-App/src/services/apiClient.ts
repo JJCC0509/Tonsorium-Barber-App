@@ -112,13 +112,36 @@ export async function apiRequest<T>(path: string, options: RequestOptions = {}):
   return payload as T;
 }
 
+/**
+ * Extrae el primer mensaje concreto de `error.details`.
+ *
+ * El backend responde los 400 VALIDATION_ERROR con un mensaje generico
+ * ("Datos de entrada invalidos.") y el detalle real de cada campo en
+ * `details` (por ejemplo "El correo electrónico no es válido."). Sin esto la
+ * pantalla mostraba siempre el texto generico.
+ */
+function firstDetailMessage(details: unknown): string | null {
+  if (!Array.isArray(details)) {
+    return null;
+  }
+  for (const item of details) {
+    if (item !== null && typeof item === 'object') {
+      const message = (item as { message?: unknown }).message;
+      if (typeof message === 'string' && message.trim().length > 0) {
+        return message;
+      }
+    }
+  }
+  return null;
+}
+
 /** Mensaje listo para mostrar al usuario, venga de `ApiError` o no. */
 export function toErrorMessage(error: unknown): string {
   if (error instanceof ApiError) {
-    return error.message;
+    return firstDetailMessage(error.details) ?? error.message;
   }
   if (error instanceof Error && error.message.length > 0) {
     return error.message;
   }
-  return 'Ocurrio un error inesperado. Intenta de nuevo.';
+  return 'Ocurrió un error inesperado. Intenta de nuevo.';
 }
