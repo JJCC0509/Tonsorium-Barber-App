@@ -14,30 +14,77 @@ import AppointmentsScreen from './src/screens/AppointmentScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import EditProfileScreen from './src/screens/EditProfileScreen';
 import { RootStackParamList } from './src/types/navigation';
-import { AuthProvider } from './src/context/AuthContext';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 /** Se muestra mientras se valida el token guardado contra `GET /me`. */
 function BootScreen() {
   return (
-    <AuthProvider>
-      <NavigationContainer>
-        <Stack.Navigator
-          initialRouteName="Login"
-          screenOptions={{
-            headerShown: false,
-            animation: 'slide_from_right',
-          }}
-        >
-          <Stack.Screen name="Login" component={LoginScreen} />
-          <Stack.Screen name="Register" component={RegisterScreen} />
-          <Stack.Screen name="Home" component={HomeScreen} />
-          <Stack.Screen name="Appointments" component={AppointmentsScreen} />
-          <Stack.Screen name="Profile" component={ProfileScreen} />
-        </Stack.Navigator>
-      </NavigationContainer>
-    </AuthProvider>
+    <View style={styles.boot}>
+      <StatusBar style="light" />
+      <ActivityIndicator size="large" color={COLORS.accentLight} />
+    </View>
+  );
+}
+
+/**
+ * Hay sesion guardada pero el servidor no respondio (sin conexion o backend
+ * dormido). No se cierra la sesion: se le ofrece reintentar o entrar con otra
+ * cuenta.
+ */
+function RestoreFailedScreen() {
+  const { retryRestore, signOut } = useAuth();
+
+  return (
+    <View style={styles.restoreFailed}>
+      <StatusBar style="dark" />
+      <ErrorState
+        message="No pudimos conectar con el servidor para restaurar tu sesión. Revisa tu conexión a internet e intenta de nuevo."
+        onRetry={() => {
+          void retryRestore();
+        }}
+      />
+      <Pressable
+        style={styles.restoreFailedLink}
+        onPress={() => {
+          void signOut();
+        }}
+      >
+        <Text style={styles.restoreFailedLinkText}>Entrar con otra cuenta</Text>
+      </Pressable>
+    </View>
+  );
+}
+
+function RootNavigator() {
+  const { status } = useAuth();
+
+  if (status === 'restoring') {
+    return <BootScreen />;
+  }
+
+  if (status === 'restoreFailed') {
+    return <RestoreFailedScreen />;
+  }
+
+  return (
+    <NavigationContainer>
+      <Stack.Navigator screenOptions={{ headerShown: false, animation: 'slide_from_right' }}>
+        {status === 'signedIn' ? (
+          <>
+            <Stack.Screen name="Home" component={HomeScreen} />
+            <Stack.Screen name="Appointments" component={AppointmentsScreen} />
+            <Stack.Screen name="Profile" component={ProfileScreen} />
+            <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+          </>
+        ) : (
+          <>
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+          </>
+        )}
+      </Stack.Navigator>
+    </NavigationContainer>
   );
 }
 
